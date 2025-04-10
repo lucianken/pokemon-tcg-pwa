@@ -1257,4 +1257,5 @@ const PokemonTCGRankTracker = () => {
 };
 
 // Renderizar el componente en el DOM
-ReactDOM.render(<PokemonTCGRankTracker />, document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<PokemonTCGRankTracker />);
