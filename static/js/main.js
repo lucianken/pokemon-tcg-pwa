@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronUp, ChevronDown, Download, Upload, Share2, Save } from 'lucide-react';
+// Pokémon TCG Pocket Rank Tracker
+// Versión: 1.0.2
+// Última actualización: 2025-04-09
 
 // Definición de rangos y puntos necesarios
 const RANKS = [
@@ -34,28 +35,38 @@ const IDB_KEY = 'userData';
 // Versión de datos
 const DATA_VERSION = '1.1';
 
+// Configuración del app
+const APP_CONFIG = {
+  version: '1.0.2',
+  buildDate: '2025-04-09',
+  dataVersion: DATA_VERSION,
+};
+
+// Extraer los íconos que necesitamos de Lucide
+const { ChevronUp, ChevronDown, Download, Upload, Share2, Save } = lucide;
+
 const PokemonTCGRankTracker = () => {
   // Estados de la aplicación
-  const [view, setView] = useState('setup');
-  const [points, setPoints] = useState(0);
-  const [wins, setWins] = useState(0);
-  const [losses, setLosses] = useState(0);
-  const [currentRank, setCurrentRank] = useState(0);
-  const [winStreak, setWinStreak] = useState(0);
-  const [gameHistory, setGameHistory] = useState([]);
-  const [rankHistory, setRankHistory] = useState({});
-  const [setupPoints, setSetupPoints] = useState('0');
-  const [setupWins, setSetupWins] = useState('0');
-  const [setupLosses, setSetupLosses] = useState('0');
-  const [setupWinStreak, setSetupWinStreak] = useState('0');
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const [importText, setImportText] = useState('');
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [shareUrl, setShareUrl] = useState('');
-  const [dbReady, setDbReady] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const [view, setView] = React.useState('setup');
+  const [points, setPoints] = React.useState(0);
+  const [wins, setWins] = React.useState(0);
+  const [losses, setLosses] = React.useState(0);
+  const [currentRank, setCurrentRank] = React.useState(0);
+  const [winStreak, setWinStreak] = React.useState(0);
+  const [gameHistory, setGameHistory] = React.useState([]);
+  const [rankHistory, setRankHistory] = React.useState({});
+  const [setupPoints, setSetupPoints] = React.useState('0');
+  const [setupWins, setSetupWins] = React.useState('0');
+  const [setupLosses, setSetupLosses] = React.useState('0');
+  const [setupWinStreak, setSetupWinStreak] = React.useState('0');
+  const [errorMessage, setErrorMessage] = React.useState('');
+  const [successMessage, setSuccessMessage] = React.useState('');
+  const [importText, setImportText] = React.useState('');
+  const [showImportDialog, setShowImportDialog] = React.useState(false);
+  const [shareUrl, setShareUrl] = React.useState('');
+  const [dbReady, setDbReady] = React.useState(false);
+  const [installPrompt, setInstallPrompt] = React.useState(null);
+  const [isStandalone, setIsStandalone] = React.useState(false);
 
   // Inicializar el historial de rangos
   const initRankHistory = () => {
@@ -67,7 +78,7 @@ const PokemonTCGRankTracker = () => {
   };
 
   // Verificar si la aplicación está instalada como PWA
-  useEffect(() => {
+  React.useEffect(() => {
     setIsStandalone(window.matchMedia('(display-mode: standalone)').matches);
     
     // Evento para capturar la solicitud de instalación
@@ -85,7 +96,7 @@ const PokemonTCGRankTracker = () => {
   }, []);
 
   // Inicializar IndexedDB
-  useEffect(() => {
+  React.useEffect(() => {
     const initDatabase = async () => {
       try {
         // Comprobar soporte de IndexedDB
@@ -126,7 +137,7 @@ const PokemonTCGRankTracker = () => {
   }, []);
 
   // Cargar datos guardados al iniciar
-  useEffect(() => {
+  React.useEffect(() => {
     if (!dbReady) return;
     
     const loadData = async () => {
@@ -135,6 +146,9 @@ const PokemonTCGRankTracker = () => {
         const data = await loadFromStorage();
         
         if (data) {
+          // Verificar versión de datos
+          console.log("Datos cargados con versión:", data.version, "Versión actual:", DATA_VERSION);
+          
           // Cargar datos en el formulario
           setSetupPoints(data.points?.toString() || '0');
           setSetupWins(data.wins?.toString() || '0');
@@ -253,7 +267,7 @@ const PokemonTCGRankTracker = () => {
   };
 
   // Guardar datos cuando cambian
-  useEffect(() => {
+  React.useEffect(() => {
     // Solo guardar si estamos en la vista principal y la DB está lista
     if (view === 'main' && dbReady) {
       try {
@@ -266,7 +280,8 @@ const PokemonTCGRankTracker = () => {
           rankHistory,
           autoload: true,
           lastUpdated: new Date().toISOString(),
-          version: DATA_VERSION
+          version: DATA_VERSION,
+          appVersion: APP_CONFIG.version
         };
         
         saveToStorage(dataToSave);
@@ -278,7 +293,7 @@ const PokemonTCGRankTracker = () => {
   }, [points, wins, losses, winStreak, gameHistory, rankHistory, view, dbReady]);
 
   // Cálculo del rango actual basado en puntos
-  useEffect(() => {
+  React.useEffect(() => {
     let rank = 0;
     for (let i = RANKS.length - 1; i >= 0; i--) {
       if (points >= RANKS[i].points) {
@@ -348,7 +363,7 @@ const PokemonTCGRankTracker = () => {
   };
 
   // Extraer datos de la URL si existen
-  useEffect(() => {
+  React.useEffect(() => {
     const loadDataFromUrl = () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -434,7 +449,8 @@ const PokemonTCGRankTracker = () => {
         rankHistory: initRankHistory(),
         autoload: true,
         lastUpdated: new Date().toISOString(),
-        version: DATA_VERSION
+        version: DATA_VERSION,
+        appVersion: APP_CONFIG.version
       };
       
       saveToStorage(dataToSave);
@@ -455,7 +471,8 @@ const PokemonTCGRankTracker = () => {
         gameHistory,
         rankHistory,
         exportDate: new Date().toISOString(),
-        version: DATA_VERSION
+        version: DATA_VERSION,
+        appVersion: APP_CONFIG.version
       };
       
       // Convertir a JSON string
@@ -561,7 +578,9 @@ const PokemonTCGRankTracker = () => {
         autoload: true,
         lastUpdated: new Date().toISOString(),
         importedFrom: importedData.exportDate,
-        version: DATA_VERSION
+        version: DATA_VERSION,
+        appVersion: APP_CONFIG.version,
+        previousVersion: importedData.version || 'desconocida'
       };
       
       saveToStorage(dataToSave);
@@ -723,8 +742,7 @@ const PokemonTCGRankTracker = () => {
       return "Error en cálculo";
     }
   };
-
-  // Calcular juegos estimados hasta Master Ball
+// Calcular juegos estimados hasta Master Ball
   const calculateGamesToMasterBall = () => {
     try {
       if (currentRank >= 16) return 0; // Ya está en Master Ball
@@ -897,7 +915,7 @@ const PokemonTCGRankTracker = () => {
               onClick={() => setShowImportDialog(true)} 
               className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded flex items-center justify-center"
             >
-              <Upload className="mr-2" size={20} />
+              <Upload size={20} className="mr-2" />
               Importar Datos
             </button>
           </div>
@@ -905,6 +923,7 @@ const PokemonTCGRankTracker = () => {
         
         <div className="mt-4 text-center">
           <p className="text-sm text-gray-500">Una vez en la vista principal podrás exportar tus datos</p>
+          <p className="text-xs text-gray-400 mt-2">Versión {APP_CONFIG.version}</p>
         </div>
         
         {/* Modal de Importación */}
@@ -955,3 +974,281 @@ const PokemonTCGRankTracker = () => {
         )}
       </div>
     );
+  }
+
+  // Vista principal
+  return (
+    <div className="p-4 max-w-2xl mx-auto bg-gray-50 min-h-screen">
+      {errorMessage && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg">
+          {errorMessage}
+        </div>
+      )}
+      
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg">
+          {successMessage}
+        </div>
+      )}
+      
+      <div className="bg-white rounded-xl shadow-md p-6 mb-4">
+        <h1 className="text-2xl font-bold text-center mb-4 text-blue-600">Pokémon TCG Pocket - Tracker</h1>
+        
+        {/* Botones de Exportación y Compartir */}
+        <div className="flex justify-end mb-4">
+          <button 
+            onClick={shareData} 
+            className="flex items-center text-blue-600 hover:text-blue-800 mr-4"
+          >
+            <Share2 size={18} className="mr-1" />
+            Compartir
+          </button>
+          <button 
+            onClick={exportData} 
+            className="flex items-center text-blue-600 hover:text-blue-800"
+          >
+            <Download size={18} className="mr-1" />
+            Exportar
+          </button>
+        </div>
+        
+        {/* Estado actual */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-blue-50 p-4 rounded-lg text-center">
+            <h2 className="text-lg font-semibold mb-2">Rango Actual</h2>
+            <div className="text-xl font-bold text-blue-700">{RANKS[currentRank].name}</div>
+            <div className="mt-2 text-sm text-gray-500">
+              {pointsToNextRank > 0 ? 
+                `${pointsToNextRank} puntos para ${RANKS[nextRank].name}` : 
+                "¡Rango máximo alcanzado!"}
+            </div>
+          </div>
+          
+          <div className="bg-blue-50 p-4 rounded-lg text-center">
+            <h2 className="text-lg font-semibold mb-2">Puntos</h2>
+            <div className="text-xl font-bold text-blue-700">{points}</div>
+            <div className="mt-2 text-sm text-gray-500">
+              {winStreak > 0 && currentRank <= 11 ? 
+                `Racha: ${winStreak} ${winStreak >= 5 ? '(máx)' : ''} (+${currentStreakBonus} puntos)` : ''}
+            </div>
+          </div>
+        </div>
+        
+        {/* Estadísticas */}
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          <div className="bg-green-50 p-3 rounded-lg text-center">
+            <h3 className="text-sm font-semibold mb-1">Victorias</h3>
+            <div className="text-lg font-bold text-green-600">{wins}</div>
+          </div>
+          
+          <div className="bg-red-50 p-3 rounded-lg text-center">
+            <h3 className="text-sm font-semibold mb-1">Derrotas</h3>
+            <div className="text-lg font-bold text-red-600">{losses}</div>
+          </div>
+          
+          <div className="bg-purple-50 p-3 rounded-lg text-center">
+            <h3 className="text-sm font-semibold mb-1">Winrate</h3>
+            <div className="text-lg font-bold text-purple-600">{calculateWinRate(wins, losses)}%</div>
+          </div>
+        </div>
+        
+        {/* Master Ball Projection */}
+        <div className="bg-yellow-50 p-4 rounded-lg text-center mb-6">
+          <h2 className="text-lg font-semibold mb-2">Proyección Master Ball</h2>
+          <div className="text-xl font-bold text-yellow-600">
+            {calculateGamesToMasterBall() === Infinity 
+              ? "Necesitás mejorar tu winrate" 
+              : `~${calculateGamesToMasterBall()} partidas restantes`}
+          </div>
+          <div className="mt-2 text-sm text-gray-500">
+            Con tu winrate actual de {calculateWinRate(wins, losses)}%
+          </div>
+        </div>
+        
+        {/* Registrar partida */}
+        <div className="flex space-x-2 mb-6">
+          <button 
+            onClick={() => recordGame(true)} 
+            className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center"
+          >
+            <ChevronUp size={20} className="mr-2" />
+            Victoria
+          </button>
+          
+          <button 
+            onClick={() => recordGame(false)} 
+            className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center"
+          >
+            <ChevronDown size={20} className="mr-2" />
+            Derrota
+          </button>
+        </div>
+      </div>
+      
+      {/* Historial de Partidas */}
+      <div className="bg-white rounded-xl shadow-md p-6 mb-4">
+        <h2 className="text-xl font-bold mb-4">Historial de Partidas</h2>
+        
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {gameHistory.length > 0 ? (
+            gameHistory.map((game, idx) => (
+              <div key={idx} className={`p-3 rounded-lg ${game.result === 'Victoria' ? 'bg-green-50' : 'bg-red-50'} flex justify-between`}>
+                <div>
+                  <span className={`font-semibold ${game.result === 'Victoria' ? 'text-green-600' : 'text-red-600'}`}>
+                    {game.result}
+                  </span>
+                  <span className="text-gray-500 ml-2">{game.rankName}</span>
+                </div>
+                <div>
+                  <span className={`font-semibold ${game.pointsChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {game.pointsChange >= 0 ? '+' : ''}{game.pointsChange}
+                  </span>
+                  <span className="text-gray-500 ml-2">{game.timestamp}</span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center text-gray-500">No hay partidas registradas</div>
+          )}
+        </div>
+      </div>
+      
+      {/* Estadísticas por Rango */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h2 className="text-xl font-bold mb-4">Rendimiento por Rango</h2>
+        
+        <div className="space-y-3 max-h-60 overflow-y-auto">
+          {Object.entries(rankHistory).map(([rankIdx, stats]) => {
+            const rank = RANKS[parseInt(rankIdx)];
+            const totalGames = stats.wins + stats.losses;
+            if (totalGames === 0) return null;
+            
+            const winRate = calculateWinRate(stats.wins, stats.losses);
+            
+            return (
+              <div key={rankIdx} className="p-3 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="font-medium">{rank.name}</div>
+                  <div className="text-sm">
+                    <span className="text-green-600 font-medium">{stats.wins}W</span>
+                    <span className="mx-1">-</span>
+                    <span className="text-red-600 font-medium">{stats.losses}L</span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className="bg-blue-600 h-2.5 rounded-full" 
+                    style={{ width: `${winRate}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Winrate: {winRate}%</span>
+                  <span className="font-medium">
+                    {calculateRankProjection(parseInt(rankIdx))}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
+      {/* Botón de reset y opciones */}
+      <div className="mt-4 text-center">
+        <div className="flex justify-center space-x-4">
+          <button 
+            onClick={() => setView('setup')} 
+            className="text-blue-500 hover:text-blue-700 text-sm"
+          >
+            Editar configuración
+          </button>
+          
+          <button 
+            onClick={() => {
+              setShowImportDialog(true);
+            }}
+            className="text-green-500 hover:text-green-700 text-sm"
+          >
+            Importar datos
+          </button>
+          
+          <button 
+            onClick={() => {
+              // Confirmar borrado
+              const confirmReset = window.confirm('¿Estás seguro que querés borrar todos los datos? Esta acción no se puede deshacer.');
+              if (confirmReset) {
+                // Intentar borrar de IndexedDB
+                if (window.indexedDB) {
+                  const request = indexedDB.deleteDatabase(APP_NAME);
+                  request.onsuccess = () => {
+                    console.log("Base de datos eliminada correctamente");
+                  };
+                }
+                // Borrar también de localStorage
+                localStorage.clear();
+                // Recargar
+                window.location.reload();
+              }
+            }} 
+            className="text-red-500 hover:text-red-700 text-sm"
+          >
+            Borrar datos
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">Tus datos se guardan automáticamente</p>
+        <p className="text-xs text-gray-400 mt-1">Versión {APP_CONFIG.version}</p>
+      </div>
+      
+      {/* Modal de Importación */}
+      {showImportDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Importar Datos</h2>
+            
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Sube un archivo JSON exportado previamente</p>
+              <input 
+                type="file" 
+                accept=".json" 
+                onChange={handleFileImport}
+                className="w-full border p-2 rounded"
+              />
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">O pega el contenido del archivo:</label>
+              <textarea 
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                className="w-full p-2 border rounded h-32"
+                placeholder='{"points": 0, "wins": 0, ...}'
+              />
+            </div>
+            
+            <div className="flex space-x-2">
+              <button 
+                onClick={importData} 
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded"
+                disabled={!importText.trim()}
+              >
+                Importar
+              </button>
+              <button 
+                onClick={() => {
+                  setShowImportDialog(false);
+                  setImportText('');
+                }} 
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Renderizar el componente en el DOM
+ReactDOM.render(<PokemonTCGRankTracker />, document.getElementById('root'));
