@@ -1,15 +1,14 @@
-// --- START OF FILE /static/js/main.js (v1.0.5 - Cálculos optimizados) ---
+// --- START OF FILE /static/js/main.js (v1.0.6 - Seguimiento por Mazo) ---
 
 // Pokémon TCG Pocket Rank Tracker
-// Versión: 1.0.5
-// Última actualización: 2025-04-10 (Fecha hipotética)
+// Versión: 1.0.6
 
 const RANKS = [ { name: "Beginner Rank #1", points: 0, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #2", points: 20, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #3", points: 50, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #4", points: 95, winPoints: 10, lossPoints: 0 }, { name: "Poké Ball Rank #1", points: 145, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #2", points: 195, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #3", points: 245, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #4", points: 300, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #1", points: 355, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #2", points: 420, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #3", points: 490, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #4", points: 600, winPoints: 10, lossPoints: 5 }, { name: "Ultra Ball Rank #1", points: 710, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #2", points: 860, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #3", points: 1010, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #4", points: 1225, winPoints: 10, lossPoints: 7 }, { name: "Master Ball Rank", points: 1450, winPoints: 10, lossPoints: 10 } ];
 const WIN_STREAK_BONUS = [0, 3, 6, 9, 12];
 const APP_NAME = 'pokemon-tcg-rank-tracker';
 const IDB_KEY = 'userData';
-const DATA_VERSION = '1.1';
-const APP_CONFIG = { version: '1.0.5', buildDate: '2025-04-10', dataVersion: DATA_VERSION };
+const DATA_VERSION = '1.2'; // Incrementar versión de datos por nuevo campo deckStats
+const APP_CONFIG = { version: '1.0.6', dataVersion: DATA_VERSION };
 
 const PokemonTCGRankTracker = () => {
   const [view, setView] = React.useState('setup');
@@ -32,12 +31,15 @@ const PokemonTCGRankTracker = () => {
   const [dbReady, setDbReady] = React.useState(false);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const [isStandalone, setIsStandalone] = React.useState(false);
+  // *** NUEVOS ESTADOS ***
+  const [currentDeckName, setCurrentDeckName] = React.useState(''); // Nombre del mazo actual
+  const [deckStats, setDeckStats] = React.useState({}); // Estadísticas por mazo { deckName: { wins: 0, losses: 0 } }
 
-  const initRankHistory = React.useCallback(() => { // useCallback si no depende de props/estado externo
+  const initRankHistory = React.useCallback(() => {
     const newRankHistory = {};
     RANKS.forEach((rank, index) => { newRankHistory[index] = { wins: 0, losses: 0 }; });
     return newRankHistory;
-  }, []); // Vacío porque RANKS es constante global
+  }, []);
 
   React.useEffect(() => { /* PWA Install Prompt + Standalone check */
     setIsStandalone(window.matchMedia('(display-mode: standalone)').matches);
@@ -49,7 +51,7 @@ const PokemonTCGRankTracker = () => {
     const initDatabase = async () => {
       try {
         if (!window.indexedDB) { console.warn("IndexedDB no soportado, usando localStorage."); setDbReady(true); return; }
-        const dbRequest = indexedDB.open(APP_NAME, 1);
+        const dbRequest = indexedDB.open(APP_NAME, 1); // La versión de la DB sigue siendo 1, solo cambia la estructura de datos guardada
         dbRequest.onupgradeneeded = (event) => {
           const db = event.target.result;
           if (!db.objectStoreNames.contains('userData')) { db.createObjectStore('userData', { keyPath: 'id' }); console.log("Object store creado."); }
@@ -61,7 +63,7 @@ const PokemonTCGRankTracker = () => {
     initDatabase();
   }, []);
 
-  const loadFromStorage = React.useCallback(async () => { /* Load Data Function (useCallback ya que no cambia) */
+  const loadFromStorage = React.useCallback(async () => {
     try {
       if (window.indexedDB) {
         return new Promise((resolve, reject) => {
@@ -81,9 +83,9 @@ const PokemonTCGRankTracker = () => {
     } catch (error) { console.warn("Error IDB carga, fallback localStorage:", error); }
     const savedData = localStorage.getItem(`${APP_NAME}-data`);
     return savedData ? JSON.parse(savedData) : null;
-  }, []); // Dependencias vacías
+  }, []);
 
-  const saveToStorage = React.useCallback(async (data) => { /* Save Data Function (useCallback) */
+  const saveToStorage = React.useCallback(async (data) => {
     try {
       if (window.indexedDB) {
         return new Promise((resolve, reject) => {
@@ -106,7 +108,7 @@ const PokemonTCGRankTracker = () => {
       localStorage.setItem(`${APP_NAME}-data`, JSON.stringify(data));
       return true;
     } catch (storageError) { console.error("Error guardando localStorage:", storageError); setErrorMessage("Error crítico: No se pudieron guardar los datos."); return false; }
-  }, []); // Dependencia setErrorMessage si la usara dentro, pero es externa
+  }, []); // setErrorMessage es estable
 
   React.useEffect(() => { /* Load Data on DB Ready */
     if (!dbReady) return;
@@ -129,20 +131,44 @@ const PokemonTCGRankTracker = () => {
             const initializedRankHistory = initRankHistory();
             Object.keys(initializedRankHistory).forEach(rankIdx => { if (loadedRankHistory[rankIdx]) { initializedRankHistory[rankIdx].wins = loadedRankHistory[rankIdx].wins || 0; initializedRankHistory[rankIdx].losses = loadedRankHistory[rankIdx].losses || 0; } });
             setRankHistory(initializedRankHistory);
+            // *** CARGAR DATOS DE MAZO ***
+            setDeckStats(data.deckStats || {});
+            setCurrentDeckName(data.currentDeckName || '');
             setView('main');
-          } else { setRankHistory(initRankHistory()); }
-        } else { setRankHistory(initRankHistory()); }
-      } catch (error) { console.error('Error cargando datos:', error); setErrorMessage('Error cargando datos guardados'); setRankHistory(initRankHistory()); }
+          } else {
+             setRankHistory(initRankHistory());
+             setDeckStats({}); // *** Resetear si no autoload ***
+             setCurrentDeckName('');
+          }
+        } else {
+           setRankHistory(initRankHistory());
+           setDeckStats({}); // *** Resetear si no datos ***
+           setCurrentDeckName('');
+        }
+      } catch (error) {
+        console.error('Error cargando datos:', error);
+        setErrorMessage('Error cargando datos guardados');
+        setRankHistory(initRankHistory());
+        setDeckStats({}); // *** Resetear en error ***
+        setCurrentDeckName('');
+      }
     };
     loadInitialData();
-  }, [dbReady, loadFromStorage, initRankHistory]); // Añadir dependencias usadas
+  }, [dbReady, loadFromStorage, initRankHistory]);
 
   React.useEffect(() => { /* Save Data on Change */
     if (view === 'main' && dbReady) {
-      const dataToSave = { points, wins, losses, winStreak, gameHistory, rankHistory, autoload: true, lastUpdated: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
+      // *** INCLUIR DATOS DE MAZO EN GUARDADO ***
+      const dataToSave = {
+          points, wins, losses, winStreak, gameHistory, rankHistory,
+          deckStats, currentDeckName, // <<< Nuevos datos
+          autoload: true, lastUpdated: new Date().toISOString(),
+          version: DATA_VERSION, appVersion: APP_CONFIG.version
+      };
       saveToStorage(dataToSave).catch(error => { setErrorMessage('Hubo un problema al guardar los datos.'); });
     }
-  }, [points, wins, losses, winStreak, gameHistory, rankHistory, view, dbReady, saveToStorage]); // Añadir saveToStorage
+    // *** AÑADIR DEPENDENCIAS DE MAZO ***
+  }, [points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName, view, dbReady, saveToStorage]);
 
   React.useEffect(() => { /* Calculate Current Rank */
     let rank = 0;
@@ -162,170 +188,89 @@ const PokemonTCGRankTracker = () => {
     return total > 0 ? ((w / total) * 100).toFixed(1) : '0.0';
   }, []);
 
-  const calculateGamesToMasterBall = React.useCallback(() => {
-    try {
-      if (currentRank >= 16) return 0;
-      const targetPoints = RANKS[16].points;
-      if (points >= targetPoints) return 0; // Ya está o superó
+  const calculateGamesToMasterBall = React.useCallback(() => { /* ... (sin cambios) ... */
+    try { if (currentRank >= 16) return 0; const targetPoints = RANKS[16].points; if (points >= targetPoints) return 0; const pointsNeededTotal = targetPoints - points; const globalWinRate = (wins + losses > 0) ? wins / (wins + losses) : 0.5; let estimatedTotalGames = 0; let currentSimulatedPoints = points; for (let i = currentRank; i < 16; i++) { const rankData = RANKS[i]; const nextRankPoints = (i + 1 < RANKS.length) ? RANKS[i+1].points : targetPoints; const pointsNeededForThisRank = nextRankPoints - currentSimulatedPoints; if (pointsNeededForThisRank <= 0) { currentSimulatedPoints = Math.max(currentSimulatedPoints, rankData.points); continue; } const winPoints = rankData.winPoints; const lossPoints = rankData.lossPoints; const streakApplies = i <= 11; let avgStreakBonus = 0; if (streakApplies) { if (globalWinRate > 0.8) avgStreakBonus = 9; else if (globalWinRate > 0.65) avgStreakBonus = 6; else if (globalWinRate > 0.5) avgStreakBonus = 3; } const effectiveWinPoints = winPoints + avgStreakBonus; const netPointsPerGame = (globalWinRate * effectiveWinPoints) - ((1 - globalWinRate) * lossPoints); if (netPointsPerGame <= 0) return Infinity; const gamesForThisRank = Math.ceil(pointsNeededForThisRank / netPointsPerGame); estimatedTotalGames += gamesForThisRank; currentSimulatedPoints += pointsNeededForThisRank; } return estimatedTotalGames; } catch (error) { console.error('Error calculando juegos hasta Master Ball:', error); return Infinity; }
+  }, [currentRank, points, wins, losses]);
 
-      const pointsNeededTotal = targetPoints - points;
-      const globalWinRate = (wins + losses > 0) ? wins / (wins + losses) : 0.5;
-
-      let estimatedTotalGames = 0;
-      let currentSimulatedPoints = points;
-
-      for (let i = currentRank; i < 16; i++) {
-          const rankData = RANKS[i];
-          const nextRankPoints = (i + 1 < RANKS.length) ? RANKS[i+1].points : targetPoints; // Punto de inicio del siguiente rango o Master
-          const pointsNeededForThisRank = nextRankPoints - currentSimulatedPoints;
-
-          if (pointsNeededForThisRank <= 0) { // Si ya estamos en el siguiente rango virtualmente
-              currentSimulatedPoints = Math.max(currentSimulatedPoints, rankData.points); // Asegurar que empezamos desde el inicio del rango si ya lo pasamos
-              continue;
-          }
-
-          const winPoints = rankData.winPoints;
-          const lossPoints = rankData.lossPoints;
-          const streakApplies = i <= 11; // Hasta Great Ball Rank #4
-
-          let avgStreakBonus = 0;
-          if (streakApplies) {
-              if (globalWinRate > 0.8) avgStreakBonus = 9;
-              else if (globalWinRate > 0.65) avgStreakBonus = 6;
-              else if (globalWinRate > 0.5) avgStreakBonus = 3;
-          }
-
-          const effectiveWinPoints = winPoints + avgStreakBonus;
-          const netPointsPerGame = (globalWinRate * effectiveWinPoints) - ((1 - globalWinRate) * lossPoints);
-
-          if (netPointsPerGame <= 0) return Infinity; // Imposible progresar con este winrate en este rango
-
-          const gamesForThisRank = Math.ceil(pointsNeededForThisRank / netPointsPerGame);
-          estimatedTotalGames += gamesForThisRank;
-
-          // Actualizar puntos simulados para el siguiente ciclo (o final)
-          // No es estrictamente necesario para el total de juegos, pero útil si quisiéramos más detalle
-          currentSimulatedPoints += pointsNeededForThisRank;
-      }
-
-      return estimatedTotalGames;
-
-    } catch (error) {
-      console.error('Error calculando juegos hasta Master Ball:', error);
-      return Infinity;
-    }
-  }, [currentRank, points, wins, losses]); // Dependencias de estado/calculadas usadas
-
-  const calculateRankProjection = React.useCallback((rankIndex) => { /* Rank Projection (sin cambios internos) */
-      try {
-        const rank = RANKS[rankIndex];
-        const nextRankIndex = rankIndex + 1; // Siempre habrá uno más hasta Master
-        if (nextRankIndex >= RANKS.length) return "¡Rango máximo!"; // Si ya es Master
-        const nextRank = RANKS[nextRankIndex];
-
-        let pointsNeeded;
-        // Si es el rango actual Y AÚN estamos en él (no en Master)
-        if (rankIndex === currentRank && currentRank < 16) {
-            pointsNeeded = nextRank.points - points;
-        } else if (rankIndex < currentRank) { // Si es un rango pasado, no aplica proyección
-             return "-";
-        }
-        else { // Si es un rango futuro (no debería mostrarse si no hay datos, pero por si acaso)
-            pointsNeeded = nextRank.points - rank.points;
-        }
-
-        if (pointsNeeded <=0) return "Completado"; // Si ya se superó
-
-        const rankStats = rankHistory[rankIndex] || { wins: 0, losses: 0 };
-        const totalGamesInRank = rankStats.wins + rankStats.losses;
-        let rankWinRate;
-
-        if (totalGamesInRank > 0) { rankWinRate = rankStats.wins / totalGamesInRank; }
-        else if (wins + losses > 0) { rankWinRate = wins / (wins + losses); } // Fallback a global
-        else { rankWinRate = 0.5; } // Fallback a 50% si no hay datos
-
-        const winPoints = rank.winPoints;
-        const lossPoints = rank.lossPoints;
-        const streakApplies = rankIndex <= 11;
-
-        let avgStreakBonus = 0;
-        if (streakApplies) {
-            if (rankWinRate > 0.8) avgStreakBonus = 9;
-            else if (rankWinRate > 0.65) avgStreakBonus = 6;
-            else if (rankWinRate > 0.5) avgStreakBonus = 3;
-        }
-        const effectiveWinPoints = winPoints + avgStreakBonus;
-        const netPointsPerGame = (rankWinRate * effectiveWinPoints) - ((1 - rankWinRate) * lossPoints);
-
-        if (netPointsPerGame <= 0) {
-             const requiredWinRate = (lossPoints / (winPoints + lossPoints));
-             return `${pointsNeeded} pts | Req: >${(requiredWinRate * 100).toFixed(0)}% WR`;
-        }
-        const estimatedGames = Math.ceil(pointsNeeded / netPointsPerGame);
-        return `${pointsNeeded} pts | ~${estimatedGames} partidas`;
-      } catch (error) { console.error('Error proyección rango:', error); return "Error"; }
-  }, [points, wins, losses, currentRank, rankHistory]); // Dependencias
+  const calculateRankProjection = React.useCallback((rankIndex) => { /* ... (sin cambios) ... */
+      try { const rank = RANKS[rankIndex]; const nextRankIndex = rankIndex + 1; if (nextRankIndex >= RANKS.length) return "¡Rango máximo!"; const nextRank = RANKS[nextRankIndex]; let pointsNeeded; if (rankIndex === currentRank && currentRank < 16) { pointsNeeded = nextRank.points - points; } else if (rankIndex < currentRank) { return "-"; } else { pointsNeeded = nextRank.points - rank.points; } if (pointsNeeded <=0) return "Completado"; const rankStats = rankHistory[rankIndex] || { wins: 0, losses: 0 }; const totalGamesInRank = rankStats.wins + rankStats.losses; let rankWinRate; if (totalGamesInRank > 0) { rankWinRate = rankStats.wins / totalGamesInRank; } else if (wins + losses > 0) { rankWinRate = wins / (wins + losses); } else { rankWinRate = 0.5; } const winPoints = rank.winPoints; const lossPoints = rank.lossPoints; const streakApplies = rankIndex <= 11; let avgStreakBonus = 0; if (streakApplies) { if (rankWinRate > 0.8) avgStreakBonus = 9; else if (rankWinRate > 0.65) avgStreakBonus = 6; else if (rankWinRate > 0.5) avgStreakBonus = 3; } const effectiveWinPoints = winPoints + avgStreakBonus; const netPointsPerGame = (rankWinRate * effectiveWinPoints) - ((1 - rankWinRate) * lossPoints); if (netPointsPerGame <= 0) { const requiredWinRate = (lossPoints / (winPoints + lossPoints)); return `${pointsNeeded} pts | Req: >${(requiredWinRate * 100).toFixed(0)}% WR`; } const estimatedGames = Math.ceil(pointsNeeded / netPointsPerGame); return `${pointsNeeded} pts | ~${estimatedGames} partidas`; } catch (error) { console.error('Error proyección rango:', error); return "Error"; }
+  }, [points, wins, losses, currentRank, rankHistory]);
 
   // --- Funciones de Acción ---
-  const handleSetupSubmit = React.useCallback(() => { /* Setup Submit */
+  const handleSetupSubmit = React.useCallback(() => {
     try {
       const initialPoints = parseInt(setupPoints) || 0;
       const initialWins = parseInt(setupWins) || 0;
       const initialLosses = parseInt(setupLosses) || 0;
       const initialWinStreak = parseInt(setupWinStreak) || 0;
-      setPoints(initialPoints);
-      setWins(initialWins);
-      setLosses(initialLosses);
-      setWinStreak(initialWinStreak);
+      setPoints(initialPoints); setWins(initialWins); setLosses(initialLosses); setWinStreak(initialWinStreak);
       setGameHistory([]);
       const newRankHistory = initRankHistory();
       setRankHistory(newRankHistory);
+      // *** RESETEAR DATOS DE MAZO EN SETUP ***
+      setDeckStats({});
+      setCurrentDeckName('');
       setView('main');
       setErrorMessage('');
-      const dataToSave = { points: initialPoints, wins: initialWins, losses: initialLosses, winStreak: initialWinStreak, gameHistory: [], rankHistory: newRankHistory, autoload: true, lastUpdated: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
+      // *** INCLUIR DATOS DE MAZO EN GUARDADO INICIAL ***
+      const dataToSave = { points: initialPoints, wins: initialWins, losses: initialLosses, winStreak: initialWinStreak, gameHistory: [], rankHistory: newRankHistory, deckStats: {}, currentDeckName: '', autoload: true, lastUpdated: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
       saveToStorage(dataToSave).catch(err => console.error("Error guardando en setup:", err));
     } catch (error) { console.error('Error en setup:', error); setErrorMessage('Error en la configuración.'); }
-  }, [setupPoints, setupWins, setupLosses, setupWinStreak, initRankHistory, saveToStorage]); // Dependencias
+  }, [setupPoints, setupWins, setupLosses, setupWinStreak, initRankHistory, saveToStorage]);
 
-  const recordGame = React.useCallback((isWin) => { /* Record Game */
+  // *** MODIFICADO: recordGame AHORA USA Y ACTUALIZA deckStats ***
+  const recordGame = React.useCallback((isWin) => {
       try {
         const updatedRankHistory = {...rankHistory};
-        let currentPoints = points; // Usar una variable local para el cálculo inmediato
+        const updatedDeckStats = {...deckStats};
+        const deckKey = currentDeckName.trim() || "(Sin Mazo)"; // Usar "(Sin Mazo)" si está vacío
+
+        let currentPoints = points;
         let currentWinStreak = winStreak;
         let pointsChange = 0;
         const rankData = RANKS[currentRank];
 
+        if (!updatedDeckStats[deckKey]) { updatedDeckStats[deckKey] = { wins: 0, losses: 0 }; } // Inicializar si no existe
+
         if (isWin) {
           updatedRankHistory[currentRank].wins = (updatedRankHistory[currentRank]?.wins || 0) + 1;
+          updatedDeckStats[deckKey].wins += 1; // Actualizar stats del mazo
           currentWinStreak += 1;
           setWins(w => w + 1);
           pointsChange = rankData.winPoints;
-          if (currentRank <= 11) { // Streak bonus aplica hasta Great Ball 4
+          if (currentRank <= 11) {
             const streakBonus = WIN_STREAK_BONUS[Math.min(currentWinStreak, WIN_STREAK_BONUS.length - 1)];
             pointsChange += streakBonus;
           }
         } else {
           updatedRankHistory[currentRank].losses = (updatedRankHistory[currentRank]?.losses || 0) + 1;
-          currentWinStreak = 0; // Resetear racha
+          updatedDeckStats[deckKey].losses += 1; // Actualizar stats del mazo
+          currentWinStreak = 0;
           setLosses(l => l + 1);
           pointsChange = -rankData.lossPoints;
         }
 
         const newPoints = Math.max(0, currentPoints + pointsChange);
         setPoints(newPoints);
-        setWinStreak(currentWinStreak); // Actualizar estado de racha
+        setWinStreak(currentWinStreak);
         setRankHistory(updatedRankHistory);
+        setDeckStats(updatedDeckStats); // Guardar estado actualizado de deckStats
 
-        const gameInfo = { result: isWin ? 'Victoria' : 'Derrota', pointsChange, newPoints, rankName: rankData.name, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), date: new Date().toISOString() };
-        setGameHistory(gh => [gameInfo, ...gh].slice(0, 50)); // Limitar historial a 50 entradas
+        const gameInfo = { // Guardar nombre del mazo en historial
+            result: isWin ? 'Victoria' : 'Derrota', pointsChange, newPoints,
+            rankName: rankData.name, deck: deckKey, // Guardar el deckKey
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            date: new Date().toISOString()
+        };
+        setGameHistory(gh => [gameInfo, ...gh].slice(0, 50));
         setErrorMessage('');
       } catch (error) { console.error('Error registrando partida:', error); setErrorMessage('Error registrando partida'); }
-  }, [points, wins, losses, winStreak, currentRank, rankHistory]); // Dependencias
+  }, [points, winStreak, currentRank, rankHistory, deckStats, currentDeckName]); // Dependencias actualizadas
 
-  const exportData = React.useCallback(() => { /* Export Data */
-      // ... (tu código de exportación, sin cambios internos necesarios aquí) ...
+  const exportData = React.useCallback(() => {
        try {
-          const dataToExport = { points, wins, losses, winStreak, gameHistory, rankHistory, exportDate: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
+          // *** INCLUIR DATOS DE MAZO EN EXPORTACIÓN ***
+          const dataToExport = { points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName, exportDate: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
           const jsonString = JSON.stringify(dataToExport, null, 2);
           const blob = new Blob([jsonString], { type: 'application/json' });
           const file = new File([blob], `pokemon-tcg-data-${new Date().toISOString().slice(0,10)}.json`, { type: 'application/json' });
@@ -333,22 +278,18 @@ const PokemonTCGRankTracker = () => {
           if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             navigator.share({ files: [file], title: 'Datos Pokémon TCG Pocket', text: 'Exportación de datos.' })
               .then(() => setSuccessMessage('Datos compartidos.'))
-              .catch((error) => { if (error.name !== 'AbortError') downloadFile(jsonString); }); // Fallback si falla share
-          } else { downloadFile(jsonString); } // Fallback si share no es soportado
+              .catch((error) => { if (error.name !== 'AbortError') downloadFile(jsonString); });
+          } else { downloadFile(jsonString); }
            setTimeout(() => setSuccessMessage(''), 3000);
         } catch (error) { console.error('Error exportando:', error); setErrorMessage('Error al exportar datos'); setTimeout(() => setErrorMessage(''), 5000); }
-  }, [points, wins, losses, winStreak, gameHistory, rankHistory]); // Dependencias
+  }, [points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName]); // Dependencias actualizadas
 
-   const downloadFile = (jsonString) => { /* Download Helper */
-     const blob = new Blob([jsonString], { type: 'application/json' });
-     const url = URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url; a.download = `pokemon-tcg-data-${new Date().toISOString().slice(0,10)}.json`;
-     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-     setSuccessMessage('Datos exportados.');
+   const downloadFile = (jsonString) => { /* ... (sin cambios) ... */
+     const blob = new Blob([jsonString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `pokemon-tcg-data-${new Date().toISOString().slice(0,10)}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setSuccessMessage('Datos exportados.');
    };
 
-  const importData = React.useCallback(() => { /* Import Data */
+   // *** MODIFICADO: importData AHORA CARGA deckStats y currentDeckName ***
+   const importData = React.useCallback(() => {
       try {
         if (!importText.trim()) { setErrorMessage('No hay datos para importar'); return; }
         const importedData = JSON.parse(importText);
@@ -360,65 +301,44 @@ const PokemonTCGRankTracker = () => {
         const impWinStreak = importedData.winStreak || 0;
         const impGameHistory = importedData.gameHistory || [];
         const impRankHistory = importedData.rankHistory || {};
+        const impDeckStats = importedData.deckStats || {}; // Cargar datos de mazo
+        const impCurrentDeckName = importedData.currentDeckName || ''; // Cargar nombre de mazo
+
         const updatedRankHistory = initRankHistory();
         Object.keys(updatedRankHistory).forEach(rankIdx => { if (impRankHistory[rankIdx]) { updatedRankHistory[rankIdx].wins = impRankHistory[rankIdx].wins || 0; updatedRankHistory[rankIdx].losses = impRankHistory[rankIdx].losses || 0; } });
 
         setPoints(impPoints); setWins(impWins); setLosses(impLosses); setWinStreak(impWinStreak); setGameHistory(impGameHistory); setRankHistory(updatedRankHistory);
+        setDeckStats(impDeckStats); // Establecer estado de mazo
+        setCurrentDeckName(impCurrentDeckName); // Establecer nombre
 
-        const dataToSave = { points: impPoints, wins: impWins, losses: impLosses, winStreak: impWinStreak, gameHistory: impGameHistory, rankHistory: updatedRankHistory, autoload: true, lastUpdated: new Date().toISOString(), importedFrom: importedData.exportDate, version: DATA_VERSION, appVersion: APP_CONFIG.version, previousVersion: importedData.version || 'desconocida' };
+        const dataToSave = { // Incluir datos de mazo al guardar
+            points: impPoints, wins: impWins, losses: impLosses, winStreak: impWinStreak,
+            gameHistory: impGameHistory, rankHistory: updatedRankHistory,
+            deckStats: impDeckStats, currentDeckName: impCurrentDeckName,
+            autoload: true, lastUpdated: new Date().toISOString(), importedFrom: importedData.exportDate,
+            version: DATA_VERSION, appVersion: APP_CONFIG.version, previousVersion: importedData.version || 'desconocida'
+        };
         saveToStorage(dataToSave);
 
         setView('main'); setShowImportDialog(false); setImportText(''); setSuccessMessage('Datos importados.');
         setTimeout(() => setSuccessMessage(''), 3000);
       } catch (error) { console.error('Error importando:', error); setErrorMessage('Error al importar: ' + error.message); setTimeout(() => setErrorMessage(''), 5000); }
-  }, [importText, initRankHistory, saveToStorage]); // Dependencias
+  }, [importText, initRankHistory, saveToStorage]);
 
-  const handleFileImport = (event) => { /* Handle File Input */
-    const file = event.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => { try { setImportText(e.target.result); } catch (error) { console.error('Error leyendo archivo:', error); setErrorMessage('Error al leer archivo'); } };
-    reader.readAsText(file);
+  const handleFileImport = (event) => { /* ... (sin cambios) ... */
+    const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { setImportText(e.target.result); } catch (error) { console.error('Error leyendo archivo:', error); setErrorMessage('Error al leer archivo'); } }; reader.readAsText(file);
   };
 
-  const shareData = React.useCallback(async () => { /* Share Data */
-      try {
-        const dataToShare = { p: points, w: wins, l: losses, s: winStreak, r: currentRank, v: DATA_VERSION };
-        const encodedData = encodeURIComponent(JSON.stringify(dataToShare));
-        const url = `${window.location.origin}${window.location.pathname}?data=${encodedData}`;
-        setShareUrl(url);
+  const shareData = React.useCallback(async () => { /* ... (sin cambios, solo comparte estado resumido) ... */
+      try { const dataToShare = { p: points, w: wins, l: losses, s: winStreak, r: currentRank, v: DATA_VERSION }; const encodedData = encodeURIComponent(JSON.stringify(dataToShare)); const url = `${window.location.origin}${window.location.pathname}?data=${encodedData}`; setShareUrl(url); if (navigator.share) { await navigator.share({ title: 'Mis datos de Pokémon TCG Pocket', text: `Progreso: ${RANKS[currentRank].name}, ${points}pts, ${wins}W-${losses}L`, url: url }); setSuccessMessage('¡Datos compartidos!'); } else { await navigator.clipboard.writeText(url); setSuccessMessage('Enlace copiado.'); } setTimeout(() => setSuccessMessage(''), 3000); } catch (error) { console.error('Error compartiendo:', error); if (error.name !== 'AbortError') { setErrorMessage('Error al compartir.'); setTimeout(() => setErrorMessage(''), 5000); } }
+  }, [points, wins, losses, winStreak, currentRank]);
 
-        if (navigator.share) {
-          await navigator.share({ title: 'Mis datos de Pokémon TCG Pocket', text: `Progreso: ${RANKS[currentRank].name}, ${points}pts, ${wins}W-${losses}L`, url: url });
-          setSuccessMessage('¡Datos compartidos!');
-        } else { await navigator.clipboard.writeText(url); setSuccessMessage('Enlace copiado.'); }
-         setTimeout(() => setSuccessMessage(''), 3000);
-      } catch (error) { console.error('Error compartiendo:', error); if (error.name !== 'AbortError') { setErrorMessage('Error al compartir.'); setTimeout(() => setErrorMessage(''), 5000); } }
-  }, [points, wins, losses, winStreak, currentRank]); // Dependencias
+   React.useEffect(() => { /* Load data from URL */ /* ... (sin cambios) ... */
+     if (!dbReady) return; try { const urlParams = new URLSearchParams(window.location.search); const encodedData = urlParams.get('data'); if (encodedData) { const data = JSON.parse(decodeURIComponent(encodedData)); if (data.v && data.p !== undefined) { setSetupPoints(data.p.toString()); setSetupWins(data.w.toString()); setSetupLosses(data.l.toString()); setSetupWinStreak(data.s.toString()); setSuccessMessage('Datos cargados desde enlace.'); setTimeout(() => setSuccessMessage(''), 3000); window.history.replaceState({}, document.title, window.location.pathname); } } } catch (error) { console.error('Error cargando desde URL:', error); }
+   }, [dbReady]);
 
-   React.useEffect(() => { /* Load data from URL */
-     if (!dbReady) return;
-     try {
-       const urlParams = new URLSearchParams(window.location.search);
-       const encodedData = urlParams.get('data');
-       if (encodedData) {
-         const data = JSON.parse(decodeURIComponent(encodedData));
-         if (data.v && data.p !== undefined) {
-           setSetupPoints(data.p.toString()); setSetupWins(data.w.toString()); setSetupLosses(data.l.toString()); setSetupWinStreak(data.s.toString());
-           setSuccessMessage('Datos cargados desde enlace.'); setTimeout(() => setSuccessMessage(''), 3000);
-           window.history.replaceState({}, document.title, window.location.pathname);
-         }
-       }
-     } catch (error) { console.error('Error cargando desde URL:', error); }
-   }, [dbReady]); // Ejecutar solo una vez cuando db esté lista
-
-   const installPWA = async () => { /* Install PWA */
-     if (!installPrompt) return;
-     try {
-       installPrompt.prompt();
-       const { outcome } = await installPrompt.userChoice;
-       if (outcome === 'accepted') setSuccessMessage('¡App instalada!');
-       setInstallPrompt(null);
-     } catch (error) { console.error('Error instalando PWA:', error); }
+   const installPWA = async () => { /* ... (sin cambios) ... */
+     if (!installPrompt) return; try { installPrompt.prompt(); const { outcome } = await installPrompt.userChoice; if (outcome === 'accepted') setSuccessMessage('¡App instalada!'); setInstallPrompt(null); } catch (error) { console.error('Error instalando PWA:', error); }
    };
 
    // --- Estilos para Iconos (sin cambios) ---
@@ -433,8 +353,6 @@ const PokemonTCGRankTracker = () => {
   }
 
   // --- Render Main View ---
-
-  // *** Calcular valores derivados UNA VEZ antes de retornar el JSX ***
   const currentWinRate = calculateWinRate(wins, losses);
   const gamesToMaster = calculateGamesToMasterBall();
   const nextRankIndex = currentRank < 16 ? currentRank + 1 : 16;
@@ -449,49 +367,30 @@ const PokemonTCGRankTracker = () => {
 
       <div className="bg-white rounded-xl shadow-md p-6 mb-4">
         <h1 className="text-2xl font-bold text-center mb-4 text-blue-600">Pokémon TCG Pocket - Tracker</h1>
-
         <div className="flex justify-end space-x-4 mb-4 text-sm">
           <button onClick={shareData} className="flex items-center text-blue-600 hover:text-blue-800 transition"><i data-lucide="share-2" style={iconStyleSmall}></i> Compartir</button>
           <button onClick={exportData} className="flex items-center text-blue-600 hover:text-blue-800 transition"><i data-lucide="download" style={iconStyleSmall}></i> Exportar</button>
         </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Rango Actual</h2>
-            <div className="text-lg font-bold text-blue-700">{RANKS[currentRank]?.name || 'Desconocido'}</div>
-            <div className="mt-1 text-xs text-gray-500">
-              {/* Usar variables calculadas */}
-              {pointsToNextRankDisplay > 0 && nextRankName ? `${pointsToNextRankDisplay} pts para ${nextRankName}` : (currentRank >= 16 ? "¡Rango máximo!" : "")}
-            </div>
-          </div>
-          <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Puntos</h2>
-            <div className="text-lg font-bold text-blue-700">{points}</div>
-            <div className="mt-1 text-xs text-gray-500 h-4">
-              {/* Usar variable calculada */}
-              {currentStreakBonusDisplay > 0 ? `Racha: ${winStreak} (+${currentStreakBonusDisplay} pts)` : ''}
-            </div>
-          </div>
+          <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm"><h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Rango Actual</h2><div className="text-lg font-bold text-blue-700">{RANKS[currentRank]?.name || 'Desconocido'}</div><div className="mt-1 text-xs text-gray-500">{pointsToNextRankDisplay > 0 && nextRankName ? `${pointsToNextRankDisplay} pts para ${nextRankName}` : (currentRank >= 16 ? "¡Rango máximo!" : "")}</div></div>
+          <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm"><h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Puntos</h2><div className="text-lg font-bold text-blue-700">{points}</div><div className="mt-1 text-xs text-gray-500 h-4">{currentStreakBonusDisplay > 0 ? `Racha: ${winStreak} (+${currentStreakBonusDisplay} pts)` : ''}</div></div>
         </div>
-
         <div className="grid grid-cols-3 gap-2 mb-6">
           <div className="bg-green-50 p-3 rounded-lg text-center shadow-sm"><h3 className="text-xs font-semibold text-gray-600 mb-1 uppercase">Victorias</h3><div className="text-base font-bold text-green-600">{wins}</div></div>
           <div className="bg-red-50 p-3 rounded-lg text-center shadow-sm"><h3 className="text-xs font-semibold text-gray-600 mb-1 uppercase">Derrotas</h3><div className="text-base font-bold text-red-600">{losses}</div></div>
-          <div className="bg-purple-50 p-3 rounded-lg text-center shadow-sm">
-            <h3 className="text-xs font-semibold text-gray-600 mb-1 uppercase">Winrate</h3>
-            {/* Usar variable calculada */}
-            <div className="text-base font-bold text-purple-600">{currentWinRate}%</div>
-          </div>
+          <div className="bg-purple-50 p-3 rounded-lg text-center shadow-sm"><h3 className="text-xs font-semibold text-gray-600 mb-1 uppercase">Winrate</h3><div className="text-base font-bold text-purple-600">{currentWinRate}%</div></div>
         </div>
-
         <div className="bg-yellow-50 p-4 rounded-lg text-center mb-6 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Proyección Master Ball</h2>
-          {/* Usar variable calculada */}
-          <div className="text-lg font-bold text-yellow-700">
-            {gamesToMaster === Infinity ? "Winrate insuficiente" : (gamesToMaster === 0 && currentRank >= 16 ? "¡Alcanzado!" : `~${gamesToMaster} partidas`)}
-          </div>
-          {/* Usar variable calculada */}
+          <div className="text-lg font-bold text-yellow-700">{gamesToMaster === Infinity ? "Winrate insuficiente" : (gamesToMaster === 0 && currentRank >= 16 ? "¡Alcanzado!" : `~${gamesToMaster} partidas`)}</div>
           <div className="mt-1 text-xs text-gray-500">Con {currentWinRate}% winrate</div>
+        </div>
+
+        {/* *** Input Nombre de Mazo *** */}
+        <div className="mb-4">
+          <label htmlFor="deckNameInput" className="block text-sm font-medium text-gray-700 mb-1">Mazo Actual:</label>
+          <input type="text" id="deckNameInput" value={currentDeckName} onChange={(e) => setCurrentDeckName(e.target.value)} placeholder="Ej: Gardevoir ex" className="w-full p-2 border rounded shadow-sm focus:ring-blue-500 focus:border-blue-500"/>
+          <p className="text-xs text-gray-500 mt-1">Este nombre se guardará con la próxima partida.</p>
         </div>
 
         <div className="flex space-x-2 mb-6">
@@ -500,23 +399,53 @@ const PokemonTCGRankTracker = () => {
         </div>
       </div>
 
-      {/* --- Historial y Rendimiento por Rango (sin cambios en la lógica de renderizado, usa calculateRankProjection) --- */}
       <div className="bg-white rounded-xl shadow-md p-6 mb-4">
         <h2 className="text-xl font-bold mb-4 text-gray-800">Historial de Partidas</h2>
         <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-          {gameHistory.length > 0 ? ( gameHistory.map((game, idx) => ( <div key={idx} className={`p-3 rounded-lg text-sm flex justify-between items-center ${game.result === 'Victoria' ? 'bg-green-50' : 'bg-red-50'}`}><div><span className={`font-semibold ${game.result === 'Victoria' ? 'text-green-700' : 'text-red-700'}`}>{game.result}</span><span className="text-gray-500 ml-2 text-xs">({game.rankName})</span></div><div className="text-right"><span className={`font-semibold ${game.pointsChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>{game.pointsChange >= 0 ? '+' : ''}{game.pointsChange}pts</span><span className="text-gray-400 ml-2 text-xs block">{game.timestamp}</span></div></div> )) ) : ( <div className="text-center text-gray-500 py-4">No hay partidas registradas</div> )}
+          {gameHistory.length > 0 ? ( gameHistory.map((game, idx) => ( <div key={idx} className={`p-3 rounded-lg text-sm flex justify-between items-center ${game.result === 'Victoria' ? 'bg-green-50' : 'bg-red-50'}`}><div><span className={`font-semibold ${game.result === 'Victoria' ? 'text-green-700' : 'text-red-700'}`}>{game.result}</span> {/* Mostrar mazo usado */} <span className="text-gray-500 ml-2 text-xs">({game.rankName}{game.deck && game.deck !== '(Sin Mazo)' ? ` / ${game.deck}` : ''})</span></div><div className="text-right"><span className={`font-semibold ${game.pointsChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>{game.pointsChange >= 0 ? '+' : ''}{game.pointsChange}pts</span><span className="text-gray-400 ml-2 text-xs block">{game.timestamp}</span></div></div> )) ) : ( <div className="text-center text-gray-500 py-4">No hay partidas registradas</div> )}
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6">
         <h2 className="text-xl font-bold mb-4 text-gray-800">Rendimiento por Rango</h2>
         <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-          {Object.entries(rankHistory).filter(([, stats]) => stats.wins + stats.losses > 0).sort(([rankIdxA], [rankIdxB]) => parseInt(rankIdxB) - parseInt(rankIdxA)).map(([rankIdx, stats]) => { const rank = RANKS[parseInt(rankIdx)]; const winRate = calculateWinRate(stats.wins, stats.losses); return ( <div key={rankIdx} className="p-3 bg-gray-50 rounded-lg"><div className="flex justify-between items-center mb-1"><div className="font-medium text-sm text-gray-800">{rank.name}</div><div className="text-xs"><span className="text-green-600 font-medium">{stats.wins}W</span> <span className="text-gray-400">-</span> <span className="text-red-600 font-medium">{stats.losses}L</span></div></div><div className="w-full bg-gray-200 rounded-full h-1.5 mb-1"><div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${winRate}%` }}></div></div><div className="flex justify-between text-xs text-gray-500"><span>WR: {winRate}%</span>{/* calculateRankProjection sigue aquí porque depende del rankIdx específico del map */} <span className="font-medium text-right">{calculateRankProjection(parseInt(rankIdx))}</span></div></div> ); })}
-          {Object.values(rankHistory).every(stats => stats.wins + stats.losses === 0) && ( <div className="text-center text-gray-500 py-4">Sin datos de rendimiento.</div> )}
+          {Object.entries(rankHistory).filter(([, stats]) => stats.wins + stats.losses > 0).sort(([rankIdxA], [rankIdxB]) => parseInt(rankIdxB) - parseInt(rankIdxA)).map(([rankIdx, stats]) => { const rank = RANKS[parseInt(rankIdx)]; const winRate = calculateWinRate(stats.wins, stats.losses); return ( <div key={rankIdx} className="p-3 bg-gray-50 rounded-lg"><div className="flex justify-between items-center mb-1"><div className="font-medium text-sm text-gray-800">{rank.name}</div><div className="text-xs"><span className="text-green-600 font-medium">{stats.wins}W</span> <span className="text-gray-400">-</span> <span className="text-red-600 font-medium">{stats.losses}L</span></div></div><div className="w-full bg-gray-200 rounded-full h-1.5 mb-1"><div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${winRate}%` }}></div></div><div className="flex justify-between text-xs text-gray-500"><span>WR: {winRate}%</span><span className="font-medium text-right">{calculateRankProjection(parseInt(rankIdx))}</span></div></div> ); })}
+          {Object.values(rankHistory).every(stats => stats.wins + stats.losses === 0) && ( <div className="text-center text-gray-500 py-4">Sin datos de rendimiento por rango.</div> )}
         </div>
       </div>
 
-      {/* --- Botones de Opciones y Modal (sin cambios lógicos) --- */}
+      {/* *** NUEVA SECCIÓN: Rendimiento por Mazo *** */}
+      <div className="bg-white rounded-xl shadow-md p-6 mt-4">
+        <h2 className="text-xl font-bold mb-4 text-gray-800">Rendimiento por Mazo</h2>
+        <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+          {Object.entries(deckStats)
+            .sort(([deckNameA], [deckNameB]) => deckNameA.localeCompare(deckNameB)) // Ordenar alfabéticamente
+            .map(([deckName, stats]) => {
+              if (stats.wins + stats.losses === 0) return null; // No mostrar si no tiene partidas
+              const deckWinRate = calculateWinRate(stats.wins, stats.losses);
+              return (
+                <div key={deckName} className="p-3 bg-gray-50 rounded-lg">
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="font-medium text-sm text-gray-800 truncate pr-2" title={deckName}>{deckName}</div>
+                    <div className="text-xs flex-shrink-0">
+                      <span className="text-green-600 font-medium">{stats.wins}W</span> <span className="text-gray-400">-</span> <span className="text-red-600 font-medium">{stats.losses}L</span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
+                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${deckWinRate}%` }}></div>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    <span>Winrate: {deckWinRate}%</span>
+                  </div>
+                </div>
+              );
+          })}
+          {Object.keys(deckStats).length === 0 || Object.values(deckStats).every(s => s.wins + s.losses === 0) ? (
+              <div className="text-center text-gray-500 py-4">No hay datos de rendimiento por mazo.</div>
+          ) : null}
+        </div>
+      </div>
+
       <div className="mt-6 text-center">
         <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mb-2">
           <button onClick={() => setView('setup')} className="text-blue-500 hover:text-blue-700 text-sm font-medium">Editar config</button>
@@ -536,4 +465,4 @@ const container = document.getElementById('root');
 const root = ReactDOM.createRoot(container);
 root.render(<PokemonTCGRankTracker />);
 
-// --- END OF FILE /static/js/main.js (v1.0.5 - Cálculos optimizados) ---
+// --- END OF FILE /static/js/main.js (v1.0.6 - Seguimiento por Mazo) ---
