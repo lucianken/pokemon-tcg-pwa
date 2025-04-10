@@ -4,7 +4,7 @@ const URLS_TO_CACHE = [
   '/index.html',
   '/manifest.json',
   '/static/js/main.js',
-  '/static/css/main.css',
+  '/offline.html',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
   // Agrega aquí otros recursos estáticos que quieras cachear
