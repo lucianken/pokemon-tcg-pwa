@@ -43,7 +43,13 @@ const APP_CONFIG = {
 };
 
 // Extraer los íconos que necesitamos de Lucide
-const { ChevronUp, ChevronDown, Download, Upload, Share2, Save } = lucide;
+const { icons } = lucide;
+const ChevronUp = icons.ChevronUp;
+const ChevronDown = icons.ChevronDown;
+const Download = icons.Download;
+const Upload = icons.Upload;
+const Share2 = icons.Share2;
+const Save = icons.Save;
 
 const PokemonTCGRankTracker = () => {
   // Estados de la aplicación
