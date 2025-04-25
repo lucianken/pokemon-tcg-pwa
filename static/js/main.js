@@ -10,6 +10,36 @@ const IDB_KEY = 'userData';
 const DATA_VERSION = '1.3'; // Nueva versión de datos por sistema de temporadas
 const APP_CONFIG = { version: '1.0.7', dataVersion: DATA_VERSION };
 
+// Tabla de descenso de rango oficial entre temporadas
+const RANK_DEMOTION_TABLE = [
+  // Beginner Ranks - No cambian
+  { fromRank: 0, toRank: 0 }, // Beginner Rank #1 → Beginner Rank #1
+  { fromRank: 1, toRank: 1 }, // Beginner Rank #2 → Beginner Rank #2
+  { fromRank: 2, toRank: 2 }, // Beginner Rank #3 → Beginner Rank #3
+  { fromRank: 3, toRank: 3 }, // Beginner Rank #4 → Beginner Rank #4
+  
+  // Poké Ball Ranks - No cambian
+  { fromRank: 4, toRank: 4 }, // Poké Ball Rank #1 → Poké Ball Rank #1
+  { fromRank: 5, toRank: 5 }, // Poké Ball Rank #2 → Poké Ball Rank #2
+  { fromRank: 6, toRank: 6 }, // Poké Ball Rank #3 → Poké Ball Rank #3
+  { fromRank: 7, toRank: 7 }, // Poké Ball Rank #4 → Poké Ball Rank #4
+  
+  // Great Ball Ranks - Great Ball #1 no cambia, el resto desciende
+  { fromRank: 8, toRank: 8 }, // Great Ball Rank #1 → Great Ball Rank #1
+  { fromRank: 9, toRank: 8 }, // Great Ball Rank #2 → Great Ball Rank #1
+  { fromRank: 10, toRank: 9 }, // Great Ball Rank #3 → Great Ball Rank #2
+  { fromRank: 11, toRank: 9 }, // Great Ball Rank #4 → Great Ball Rank #2
+  
+  // Ultra Ball Ranks - Todos descienden
+  { fromRank: 12, toRank: 10 }, // Ultra Ball Rank #1 → Great Ball Rank #3
+  { fromRank: 13, toRank: 11 }, // Ultra Ball Rank #2 → Great Ball Rank #4
+  { fromRank: 14, toRank: 12 }, // Ultra Ball Rank #3 → Ultra Ball Rank #1
+  { fromRank: 15, toRank: 13 }, // Ultra Ball Rank #4 → Ultra Ball Rank #2
+  
+  // Master Ball Rank - Desciende
+  { fromRank: 16, toRank: 14 }, // Master Ball Rank → Ultra Ball Rank #3
+];
+
 const PokemonTCGRankTracker = () => {
   // Estados estándar (ahora reflejan la temporada actual)
   const [view, setView] = React.useState('setup');
@@ -47,6 +77,9 @@ const PokemonTCGRankTracker = () => {
   const [newSeasonName, setNewSeasonName] = React.useState(''); // Nombre de la nueva temporada
   const [selectedSeason, setSelectedSeason] = React.useState(null); // Temporada seleccionada para ver
   const [seasonViewMode, setSeasonViewMode] = React.useState(false); // Si estamos viendo una temporada pasada
+  const [newSeasonMode, setNewSeasonMode] = React.useState('official'); // Modo de inicio de temporada: 'official' o 'custom'
+  const [customRankIndex, setCustomRankIndex] = React.useState(0); // Índice de rango personalizado para nueva temporada
+  const [customPoints, setCustomPoints] = React.useState('0'); // Puntos personalizados para nueva temporada
 
   const initRankHistory = React.useCallback(() => {
     const newRankHistory = {};
@@ -321,6 +354,30 @@ const PokemonTCGRankTracker = () => {
     }
   }, []);
   
+  // Función para obtener el nuevo rango según el sistema oficial
+  const getNewSeasonRank = React.useCallback((currentRankIndex, currentPoints) => {
+    // Caso especial para Master Ball con muchos puntos (1675+)
+    if (currentRankIndex === 16 && currentPoints >= 1675) {
+      return 15; // Ultra Ball Rank #4
+    }
+    
+    // Caso normal - usar la tabla
+    if (currentRankIndex >= 0 && currentRankIndex <= 16) {
+      return RANK_DEMOTION_TABLE[currentRankIndex].toRank;
+    }
+    
+    // Si no hay coincidencia, mantener el mismo rango
+    return currentRankIndex;
+  }, []);
+  
+  // Función para obtener los puntos iniciales del nuevo rango
+  const getInitialPointsForRank = React.useCallback((rankIndex) => {
+    if (rankIndex >= 0 && rankIndex < RANKS.length) {
+      return RANKS[rankIndex].points;
+    }
+    return 0;
+  }, []);
+  
   // *** FUNCIÓN PARA INICIAR NUEVA TEMPORADA ***
   const startNewSeason = React.useCallback((newName) => {
     try {
@@ -346,13 +403,26 @@ const PokemonTCGRankTracker = () => {
       
       const updatedSeasons = [currentSeasonData, ...seasons];
       
+      // Determinar el rango y puntos iniciales para la nueva temporada
+      let initialRank, initialPoints;
+      
+      if (newSeasonMode === 'official') {
+        // Usar el sistema oficial de descenso de rangos
+        initialRank = getNewSeasonRank(currentRank, points);
+        initialPoints = getInitialPointsForRank(initialRank);
+      } else {
+        // Usar valores personalizados
+        initialRank = parseInt(customRankIndex);
+        initialPoints = parseInt(customPoints) || getInitialPointsForRank(initialRank);
+      }
+      
       // Crear nueva temporada
       const newSeasonId = `season${updatedSeasons.length + 1}`;
       const newSeasonData = {
         id: newSeasonId,
         name: newName.trim(),
         startDate: new Date().toISOString(),
-        points: 0,
+        points: initialPoints,
         wins: 0,
         losses: 0,
         winStreak: 0,
@@ -368,7 +438,7 @@ const PokemonTCGRankTracker = () => {
       setCurrentSeason(newSeasonData);
       
       // Actualizar estados de la UI para la nueva temporada
-      setPoints(0);
+      setPoints(initialPoints);
       setWins(0);
       setLosses(0);
       setWinStreak(0);
@@ -390,11 +460,22 @@ const PokemonTCGRankTracker = () => {
       saveToStorage(dataToSave);
       
       // Mostrar mensaje de éxito
-      setSuccessMessage(`Nueva temporada "${newName.trim()}" iniciada`);
+      let successMsg = `Nueva temporada "${newName.trim()}" iniciada`;
+      if (newSeasonMode === 'official') {
+        successMsg += ` con descenso oficial a ${RANKS[initialRank].name}`;
+      } else {
+        successMsg += ` con rango personalizado: ${RANKS[initialRank].name}`;
+      }
+      
+      setSuccessMessage(successMsg);
       setTimeout(() => setSuccessMessage(''), 3000);
       
+      // Limpiar diálogo
       setShowNewSeasonDialog(false);
       setNewSeasonName('');
+      setNewSeasonMode('official');
+      setCustomRankIndex(0);
+      setCustomPoints('0');
       
       return true;
     } catch (error) {
@@ -405,7 +486,9 @@ const PokemonTCGRankTracker = () => {
   }, [
     currentSeason, points, wins, losses, winStreak, 
     gameHistory, rankHistory, deckStats, currentDeckName, 
-    seasons, initRankHistory, saveToStorage
+    seasons, initRankHistory, saveToStorage, currentRank,
+    newSeasonMode, customRankIndex, customPoints,
+    getNewSeasonRank, getInitialPointsForRank
   ]);
   
   // *** FUNCIÓN PARA CARGAR UNA TEMPORADA PARA VISUALIZACIÓN ***
@@ -1030,8 +1113,9 @@ const PokemonTCGRankTracker = () => {
             <h2 className="text-xl font-bold mb-4 text-gray-800">Iniciar Nueva Temporada</h2>
             <div className="space-y-4">
               <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 mb-4">
-                <p><strong>¡Importante!</strong> Iniciar una nueva temporada guardará todos tus datos actuales en el historial y reiniciará tus estadísticas. La temporada actual se convertirá en histórica.</p>
+                <p><strong>¡Importante!</strong> Iniciar una nueva temporada guardará todos tus datos actuales en el historial. La temporada actual se convertirá en histórica.</p>
               </div>
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la nueva temporada:</label>
                 <input 
@@ -1042,7 +1126,100 @@ const PokemonTCGRankTracker = () => {
                   placeholder="Ej: Temporada 2"
                 />
               </div>
-              <div className="flex space-x-2">
+              
+              <div className="border-t pt-3">
+                <p className="text-sm font-medium text-gray-700 mb-3">Selecciona cómo quieres iniciar la nueva temporada:</p>
+                
+                <div className="space-y-3">
+                  {/* Opción 1: Descenso oficial */}
+                  <div 
+                    className={`p-3 rounded-lg border cursor-pointer ${newSeasonMode === 'official' ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                    onClick={() => setNewSeasonMode('official')}
+                  >
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className={`h-4 w-4 rounded-full border ${newSeasonMode === 'official' ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`}>
+                          {newSeasonMode === 'official' && <div className="h-2 w-2 rounded-full bg-white mx-auto mt-0.5"></div>}
+                        </div>
+                      </div>
+                      <div className="ml-2 flex-1">
+                        <h3 className="text-sm font-medium text-gray-800">Descenso oficial</h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Utiliza el sistema oficial de descenso de rango entre temporadas.
+                        </p>
+                        
+                        {newSeasonMode === 'official' && (
+                          <div className="mt-2 p-2 bg-blue-100 rounded text-sm">
+                            <p className="font-medium text-blue-800">
+                              Tu rango actual: {RANKS[currentRank]?.name}
+                            </p>
+                            <p className="text-blue-700 mt-1">
+                              Descenderás a: {RANKS[getNewSeasonRank(currentRank, points)]?.name} ({getInitialPointsForRank(getNewSeasonRank(currentRank, points))} pts)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Opción 2: Personalizado */}
+                  <div 
+                    className={`p-3 rounded-lg border cursor-pointer ${newSeasonMode === 'custom' ? 'border-purple-400 bg-purple-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                    onClick={() => setNewSeasonMode('custom')}
+                  >
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className={`h-4 w-4 rounded-full border ${newSeasonMode === 'custom' ? 'border-purple-500 bg-purple-500' : 'border-gray-300'}`}>
+                          {newSeasonMode === 'custom' && <div className="h-2 w-2 rounded-full bg-white mx-auto mt-0.5"></div>}
+                        </div>
+                      </div>
+                      <div className="ml-2 flex-1">
+                        <h3 className="text-sm font-medium text-gray-800">Personalizado</h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Selecciona manualmente tu rango y puntos iniciales.
+                        </p>
+                        
+                        {newSeasonMode === 'custom' && (
+                          <div className="mt-2 space-y-2">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">Rango inicial:</label>
+                              <select 
+                                value={customRankIndex}
+                                onChange={(e) => {
+                                  const newRank = parseInt(e.target.value);
+                                  setCustomRankIndex(newRank);
+                                  setCustomPoints(RANKS[newRank].points.toString());
+                                }}
+                                className="w-full p-2 text-sm border rounded"
+                              >
+                                {RANKS.map((rank, idx) => (
+                                  <option key={idx} value={idx}>{rank.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">Puntos iniciales:</label>
+                              <input
+                                type="number"
+                                value={customPoints}
+                                onChange={(e) => setCustomPoints(e.target.value)}
+                                className="w-full p-2 text-sm border rounded"
+                                min={RANKS[customRankIndex].points}
+                                max={customRankIndex < RANKS.length - 1 ? RANKS[customRankIndex + 1].points - 1 : 2000}
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                (Min: {RANKS[customRankIndex].points} pts {customRankIndex < RANKS.length - 1 ? `/ Max: ${RANKS[customRankIndex + 1].points - 1} pts` : ''})
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex space-x-2 pt-2">
                 <button 
                   onClick={() => startNewSeason(newSeasonName)}
                   disabled={!newSeasonName.trim()} 
@@ -1051,7 +1228,13 @@ const PokemonTCGRankTracker = () => {
                   Iniciar Nueva Temporada
                 </button>
                 <button 
-                  onClick={() => { setShowNewSeasonDialog(false); setNewSeasonName(''); }} 
+                  onClick={() => { 
+                    setShowNewSeasonDialog(false); 
+                    setNewSeasonName('');
+                    setNewSeasonMode('official');
+                    setCustomRankIndex(0);
+                    setCustomPoints('0');
+                  }} 
                   className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition"
                 >
                   Cancelar
