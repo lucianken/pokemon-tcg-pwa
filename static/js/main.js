@@ -1,16 +1,17 @@
-// --- START OF FILE /static/js/main.js (v1.0.6 - Seguimiento por Mazo) ---
+// --- START OF FILE /static/js/main.js (v1.0.7 - Sistema de Temporadas) ---
 
 // Pokémon TCG Pocket Rank Tracker
-// Versión: 1.0.6
+// Versión: 1.0.7
 
 const RANKS = [ { name: "Beginner Rank #1", points: 0, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #2", points: 20, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #3", points: 50, winPoints: 10, lossPoints: 0 }, { name: "Beginner Rank #4", points: 95, winPoints: 10, lossPoints: 0 }, { name: "Poké Ball Rank #1", points: 145, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #2", points: 195, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #3", points: 245, winPoints: 10, lossPoints: 5 }, { name: "Poké Ball Rank #4", points: 300, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #1", points: 355, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #2", points: 420, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #3", points: 490, winPoints: 10, lossPoints: 5 }, { name: "Great Ball Rank #4", points: 600, winPoints: 10, lossPoints: 5 }, { name: "Ultra Ball Rank #1", points: 710, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #2", points: 860, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #3", points: 1010, winPoints: 10, lossPoints: 7 }, { name: "Ultra Ball Rank #4", points: 1225, winPoints: 10, lossPoints: 7 }, { name: "Master Ball Rank", points: 1450, winPoints: 10, lossPoints: 10 } ];
 const WIN_STREAK_BONUS = [0, 3, 6, 9, 12];
 const APP_NAME = 'pokemon-tcg-rank-tracker';
 const IDB_KEY = 'userData';
-const DATA_VERSION = '1.2'; // Incrementar versión de datos por nuevo campo deckStats
-const APP_CONFIG = { version: '1.0.6', dataVersion: DATA_VERSION };
+const DATA_VERSION = '1.3'; // Nueva versión de datos por sistema de temporadas
+const APP_CONFIG = { version: '1.0.7', dataVersion: DATA_VERSION };
 
 const PokemonTCGRankTracker = () => {
+  // Estados estándar (ahora reflejan la temporada actual)
   const [view, setView] = React.useState('setup');
   const [points, setPoints] = React.useState(0);
   const [wins, setWins] = React.useState(0);
@@ -31,9 +32,21 @@ const PokemonTCGRankTracker = () => {
   const [dbReady, setDbReady] = React.useState(false);
   const [installPrompt, setInstallPrompt] = React.useState(null);
   const [isStandalone, setIsStandalone] = React.useState(false);
-  // *** NUEVOS ESTADOS ***
-  const [currentDeckName, setCurrentDeckName] = React.useState(''); // Nombre del mazo actual
-  const [deckStats, setDeckStats] = React.useState({}); // Estadísticas por mazo { deckName: { wins: 0, losses: 0 } }
+  const [currentDeckName, setCurrentDeckName] = React.useState('');
+  const [deckStats, setDeckStats] = React.useState({});
+  
+  // *** NUEVOS ESTADOS PARA TEMPORADAS ***
+  const [seasons, setSeasons] = React.useState([]); // Lista de temporadas pasadas
+  const [currentSeason, setCurrentSeason] = React.useState({ // Temporada actual
+    id: "season1", 
+    name: "Temporada 1",
+    startDate: new Date().toISOString(),
+  });
+  const [showSeasonsDialog, setShowSeasonsDialog] = React.useState(false); // Dialog para ver temporadas
+  const [showNewSeasonDialog, setShowNewSeasonDialog] = React.useState(false); // Dialog para nueva temporada
+  const [newSeasonName, setNewSeasonName] = React.useState(''); // Nombre de la nueva temporada
+  const [selectedSeason, setSelectedSeason] = React.useState(null); // Temporada seleccionada para ver
+  const [seasonViewMode, setSeasonViewMode] = React.useState(false); // Si estamos viendo una temporada pasada
 
   const initRankHistory = React.useCallback(() => {
     const newRankHistory = {};
@@ -51,7 +64,7 @@ const PokemonTCGRankTracker = () => {
     const initDatabase = async () => {
       try {
         if (!window.indexedDB) { console.warn("IndexedDB no soportado, usando localStorage."); setDbReady(true); return; }
-        const dbRequest = indexedDB.open(APP_NAME, 1); // La versión de la DB sigue siendo 1, solo cambia la estructura de datos guardada
+        const dbRequest = indexedDB.open(APP_NAME, 1);
         dbRequest.onupgradeneeded = (event) => {
           const db = event.target.result;
           if (!db.objectStoreNames.contains('userData')) { db.createObjectStore('userData', { keyPath: 'id' }); console.log("Object store creado."); }
@@ -110,65 +123,161 @@ const PokemonTCGRankTracker = () => {
     } catch (storageError) { console.error("Error guardando localStorage:", storageError); setErrorMessage("Error crítico: No se pudieron guardar los datos."); return false; }
   }, []); // setErrorMessage es estable
 
+  // *** FUNCIÓN PARA MIGRAR DATOS EXISTENTES AL NUEVO FORMATO ***
+  const migrateDataToSeasons = React.useCallback((data) => {
+    if (!data) return null;
+    
+    // Si ya tiene estructura de temporadas, devolvemos tal cual
+    if (data.currentSeason && Array.isArray(data.seasons)) {
+      console.log("Datos ya en formato de temporadas");
+      return data;
+    }
+    
+    // Migrar al nuevo formato
+    console.log("Migrando datos al formato de temporadas");
+    return {
+      currentSeason: {
+        id: "season1",
+        name: "Temporada 1",
+        startDate: data.lastUpdated || new Date().toISOString(),
+        points: data.points || 0,
+        wins: data.wins || 0,
+        losses: data.losses || 0,
+        winStreak: data.winStreak || 0,
+        gameHistory: data.gameHistory || [],
+        rankHistory: data.rankHistory || {},
+        deckStats: data.deckStats || {},
+        currentDeckName: data.currentDeckName || '',
+        lastUpdated: data.lastUpdated || new Date().toISOString()
+      },
+      seasons: [],
+      autoload: data.autoload !== undefined ? data.autoload : true,
+      version: DATA_VERSION,
+      appVersion: APP_CONFIG.version,
+      lastUpdated: new Date().toISOString()
+    };
+  }, []);
+
   React.useEffect(() => { /* Load Data on DB Ready */
     if (!dbReady) return;
     const loadInitialData = async () => {
       try {
         const data = await loadFromStorage();
         if (data) {
-          if (data.version && data.version !== DATA_VERSION) console.warn(`Versión de datos ${data.version} != ${DATA_VERSION}.`);
-          setSetupPoints(data.points?.toString() || '0');
-          setSetupWins(data.wins?.toString() || '0');
-          setSetupLosses(data.losses?.toString() || '0');
-          setSetupWinStreak(data.winStreak?.toString() || '0');
-          if (data.autoload) {
-            setPoints(data.points || 0);
-            setWins(data.wins || 0);
-            setLosses(data.losses || 0);
-            setWinStreak(data.winStreak || 0);
-            setGameHistory(data.gameHistory || []);
-            const loadedRankHistory = data.rankHistory || {};
+          if (data.version && data.version !== DATA_VERSION) {
+            console.warn(`Versión de datos ${data.version} != ${DATA_VERSION}. Migrando...`);
+          }
+          
+          // *** MIGRAR DATOS AL FORMATO DE TEMPORADAS SI ES NECESARIO ***
+          const migratedData = migrateDataToSeasons(data);
+          
+          setSetupPoints(migratedData.currentSeason?.points?.toString() || '0');
+          setSetupWins(migratedData.currentSeason?.wins?.toString() || '0');
+          setSetupLosses(migratedData.currentSeason?.losses?.toString() || '0');
+          setSetupWinStreak(migratedData.currentSeason?.winStreak?.toString() || '0');
+          
+          // Guardar información de temporadas
+          setCurrentSeason(migratedData.currentSeason || {
+            id: "season1",
+            name: "Temporada 1",
+            startDate: new Date().toISOString()
+          });
+          setSeasons(migratedData.seasons || []);
+          
+          if (migratedData.autoload) {
+            // Cargar datos de la temporada actual
+            setPoints(migratedData.currentSeason?.points || 0);
+            setWins(migratedData.currentSeason?.wins || 0);
+            setLosses(migratedData.currentSeason?.losses || 0);
+            setWinStreak(migratedData.currentSeason?.winStreak || 0);
+            setGameHistory(migratedData.currentSeason?.gameHistory || []);
+            
+            const loadedRankHistory = migratedData.currentSeason?.rankHistory || {};
             const initializedRankHistory = initRankHistory();
-            Object.keys(initializedRankHistory).forEach(rankIdx => { if (loadedRankHistory[rankIdx]) { initializedRankHistory[rankIdx].wins = loadedRankHistory[rankIdx].wins || 0; initializedRankHistory[rankIdx].losses = loadedRankHistory[rankIdx].losses || 0; } });
+            Object.keys(initializedRankHistory).forEach(rankIdx => { 
+              if (loadedRankHistory[rankIdx]) { 
+                initializedRankHistory[rankIdx].wins = loadedRankHistory[rankIdx].wins || 0; 
+                initializedRankHistory[rankIdx].losses = loadedRankHistory[rankIdx].losses || 0; 
+              } 
+            });
             setRankHistory(initializedRankHistory);
-            // *** CARGAR DATOS DE MAZO ***
-            setDeckStats(data.deckStats || {});
-            setCurrentDeckName(data.currentDeckName || '');
+            
+            setDeckStats(migratedData.currentSeason?.deckStats || {});
+            setCurrentDeckName(migratedData.currentSeason?.currentDeckName || '');
+            
+            // Si los datos se migraron, guardarlos de inmediato con el nuevo formato
+            if (data.version !== DATA_VERSION) {
+              saveToStorage(migratedData);
+            }
+            
             setView('main');
           } else {
-             setRankHistory(initRankHistory());
-             setDeckStats({}); // *** Resetear si no autoload ***
-             setCurrentDeckName('');
+            setRankHistory(initRankHistory());
+            setDeckStats({});
+            setCurrentDeckName('');
           }
         } else {
-           setRankHistory(initRankHistory());
-           setDeckStats({}); // *** Resetear si no datos ***
-           setCurrentDeckName('');
+          setRankHistory(initRankHistory());
+          setDeckStats({});
+          setCurrentDeckName('');
+          setCurrentSeason({
+            id: "season1",
+            name: "Temporada 1",
+            startDate: new Date().toISOString()
+          });
+          setSeasons([]);
         }
       } catch (error) {
         console.error('Error cargando datos:', error);
         setErrorMessage('Error cargando datos guardados');
         setRankHistory(initRankHistory());
-        setDeckStats({}); // *** Resetear en error ***
+        setDeckStats({});
         setCurrentDeckName('');
+        setCurrentSeason({
+          id: "season1",
+          name: "Temporada 1",
+          startDate: new Date().toISOString()
+        });
+        setSeasons([]);
       }
     };
     loadInitialData();
-  }, [dbReady, loadFromStorage, initRankHistory]);
+  }, [dbReady, loadFromStorage, initRankHistory, migrateDataToSeasons, saveToStorage]);
 
   React.useEffect(() => { /* Save Data on Change */
-    if (view === 'main' && dbReady) {
-      // *** INCLUIR DATOS DE MAZO EN GUARDADO ***
-      const dataToSave = {
-          points, wins, losses, winStreak, gameHistory, rankHistory,
-          deckStats, currentDeckName, // <<< Nuevos datos
-          autoload: true, lastUpdated: new Date().toISOString(),
-          version: DATA_VERSION, appVersion: APP_CONFIG.version
+    if (view === 'main' && dbReady && !seasonViewMode) {
+      // Solo guardar cuando estamos en la vista principal y no en modo visualización
+      const currentSeasonData = {
+        ...currentSeason,
+        points,
+        wins, 
+        losses,
+        winStreak,
+        gameHistory,
+        rankHistory,
+        deckStats,
+        currentDeckName,
+        lastUpdated: new Date().toISOString()
       };
-      saveToStorage(dataToSave).catch(error => { setErrorMessage('Hubo un problema al guardar los datos.'); });
+      
+      const dataToSave = {
+        currentSeason: currentSeasonData,
+        seasons,
+        autoload: true,
+        lastUpdated: new Date().toISOString(),
+        version: DATA_VERSION,
+        appVersion: APP_CONFIG.version
+      };
+      
+      saveToStorage(dataToSave).catch(error => { 
+        setErrorMessage('Hubo un problema al guardar los datos.'); 
+      });
     }
-    // *** AÑADIR DEPENDENCIAS DE MAZO ***
-  }, [points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName, view, dbReady, saveToStorage]);
+  }, [
+    points, wins, losses, winStreak, gameHistory, rankHistory, 
+    deckStats, currentDeckName, currentSeason, seasons,
+    view, dbReady, seasonViewMode, saveToStorage
+  ]);
 
   React.useEffect(() => { /* Calculate Current Rank */
     let rank = 0;
@@ -180,7 +289,7 @@ const PokemonTCGRankTracker = () => {
      if (typeof lucide !== 'undefined' && typeof lucide.createIcons === 'function') {
        try { lucide.createIcons(); } catch (error) { console.error("Error lucide.createIcons:", error); }
      } else { console.warn("Lucide no listo."); }
-  }, [view, showImportDialog]);
+  }, [view, showImportDialog, showSeasonsDialog, showNewSeasonDialog]);
 
   // --- Funciones de Cálculo ---
   const calculateWinRate = React.useCallback((w, l) => {
@@ -197,29 +306,258 @@ const PokemonTCGRankTracker = () => {
   }, [points, wins, losses, currentRank, rankHistory]);
 
   // --- Funciones de Acción ---
+  
+  const formatDate = React.useCallback((dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString(undefined, { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    } catch (error) {
+      console.error('Error formateando fecha:', error);
+      return 'Fecha desconocida';
+    }
+  }, []);
+  
+  // *** FUNCIÓN PARA INICIAR NUEVA TEMPORADA ***
+  const startNewSeason = React.useCallback((newName) => {
+    try {
+      // Verificar que el nombre no esté vacío
+      if (!newName || !newName.trim()) {
+        setErrorMessage('Por favor ingrese un nombre para la temporada');
+        return false;
+      }
+      
+      // Guardar temporada actual en historial
+      const currentSeasonData = {
+        ...currentSeason,
+        points,
+        wins,
+        losses,
+        winStreak,
+        gameHistory,
+        rankHistory,
+        deckStats,
+        currentDeckName,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      const updatedSeasons = [currentSeasonData, ...seasons];
+      
+      // Crear nueva temporada
+      const newSeasonId = `season${updatedSeasons.length + 1}`;
+      const newSeasonData = {
+        id: newSeasonId,
+        name: newName.trim(),
+        startDate: new Date().toISOString(),
+        points: 0,
+        wins: 0,
+        losses: 0,
+        winStreak: 0,
+        gameHistory: [],
+        rankHistory: initRankHistory(),
+        deckStats: {},
+        currentDeckName: '',
+        lastUpdated: new Date().toISOString()
+      };
+      
+      // Actualizar estados
+      setSeasons(updatedSeasons);
+      setCurrentSeason(newSeasonData);
+      
+      // Actualizar estados de la UI para la nueva temporada
+      setPoints(0);
+      setWins(0);
+      setLosses(0);
+      setWinStreak(0);
+      setGameHistory([]);
+      setRankHistory(initRankHistory());
+      setDeckStats({});
+      setCurrentDeckName('');
+      
+      // Guardar cambios
+      const dataToSave = {
+        currentSeason: newSeasonData,
+        seasons: updatedSeasons,
+        autoload: true,
+        lastUpdated: new Date().toISOString(),
+        version: DATA_VERSION,
+        appVersion: APP_CONFIG.version
+      };
+      
+      saveToStorage(dataToSave);
+      
+      // Mostrar mensaje de éxito
+      setSuccessMessage(`Nueva temporada "${newName.trim()}" iniciada`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      
+      setShowNewSeasonDialog(false);
+      setNewSeasonName('');
+      
+      return true;
+    } catch (error) {
+      console.error('Error al iniciar nueva temporada:', error);
+      setErrorMessage('Error al iniciar nueva temporada');
+      return false;
+    }
+  }, [
+    currentSeason, points, wins, losses, winStreak, 
+    gameHistory, rankHistory, deckStats, currentDeckName, 
+    seasons, initRankHistory, saveToStorage
+  ]);
+  
+  // *** FUNCIÓN PARA CARGAR UNA TEMPORADA PARA VISUALIZACIÓN ***
+  const viewSeasonData = React.useCallback((seasonIndex) => {
+    try {
+      if (seasonIndex < 0 || seasonIndex >= seasons.length) {
+        setErrorMessage('Temporada no encontrada');
+        return;
+      }
+      
+      const seasonData = seasons[seasonIndex];
+      
+      // Cargar datos de la temporada seleccionada en la UI
+      setPoints(seasonData.points || 0);
+      setWins(seasonData.wins || 0);
+      setLosses(seasonData.losses || 0);
+      setWinStreak(seasonData.winStreak || 0);
+      setGameHistory(seasonData.gameHistory || []);
+      
+      // Inicializar rankHistory correctamente
+      const initializedRankHistory = initRankHistory();
+      const loadedRankHistory = seasonData.rankHistory || {};
+      
+      Object.keys(initializedRankHistory).forEach(rankIdx => { 
+        if (loadedRankHistory[rankIdx]) { 
+          initializedRankHistory[rankIdx].wins = loadedRankHistory[rankIdx].wins || 0; 
+          initializedRankHistory[rankIdx].losses = loadedRankHistory[rankIdx].losses || 0; 
+        } 
+      });
+      setRankHistory(initializedRankHistory);
+      
+      // Establecer datos de mazos
+      setDeckStats(seasonData.deckStats || {});
+      setCurrentDeckName(seasonData.currentDeckName || '');
+      
+      // Guardar la temporada seleccionada y activar modo visualización
+      setSelectedSeason(seasonData);
+      setSeasonViewMode(true);
+      
+      // Cerrar dialogo de temporadas
+      setShowSeasonsDialog(false);
+      
+      // Mostrar mensaje informativo
+      setSuccessMessage(`Visualizando temporada: ${seasonData.name}`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error al cargar temporada:', error);
+      setErrorMessage('Error al cargar datos de la temporada');
+    }
+  }, [seasons, initRankHistory]);
+  
+  // *** FUNCIÓN PARA VOLVER A LA TEMPORADA ACTUAL ***
+  const returnToCurrentSeason = React.useCallback(() => {
+    try {
+      // Cargar datos de la temporada actual
+      setPoints(currentSeason.points || 0);
+      setWins(currentSeason.wins || 0);
+      setLosses(currentSeason.losses || 0);
+      setWinStreak(currentSeason.winStreak || 0);
+      setGameHistory(currentSeason.gameHistory || []);
+      
+      // Inicializar rankHistory
+      const initializedRankHistory = initRankHistory();
+      const loadedRankHistory = currentSeason.rankHistory || {};
+      
+      Object.keys(initializedRankHistory).forEach(rankIdx => { 
+        if (loadedRankHistory[rankIdx]) { 
+          initializedRankHistory[rankIdx].wins = loadedRankHistory[rankIdx].wins || 0; 
+          initializedRankHistory[rankIdx].losses = loadedRankHistory[rankIdx].losses || 0; 
+        } 
+      });
+      setRankHistory(initializedRankHistory);
+      
+      // Cargar datos de mazos
+      setDeckStats(currentSeason.deckStats || {});
+      setCurrentDeckName(currentSeason.currentDeckName || '');
+      
+      // Desactivar modo visualización y limpiar temporada seleccionada
+      setSelectedSeason(null);
+      setSeasonViewMode(false);
+      
+      setSuccessMessage('Volviendo a temporada actual');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error al volver a temporada actual:', error);
+      setErrorMessage('Error al cargar temporada actual');
+    }
+  }, [currentSeason, initRankHistory]);
+
   const handleSetupSubmit = React.useCallback(() => {
     try {
       const initialPoints = parseInt(setupPoints) || 0;
       const initialWins = parseInt(setupWins) || 0;
       const initialLosses = parseInt(setupLosses) || 0;
       const initialWinStreak = parseInt(setupWinStreak) || 0;
-      setPoints(initialPoints); setWins(initialWins); setLosses(initialLosses); setWinStreak(initialWinStreak);
+      
+      setPoints(initialPoints); 
+      setWins(initialWins); 
+      setLosses(initialLosses); 
+      setWinStreak(initialWinStreak);
       setGameHistory([]);
+      
       const newRankHistory = initRankHistory();
       setRankHistory(newRankHistory);
-      // *** RESETEAR DATOS DE MAZO EN SETUP ***
+      
       setDeckStats({});
       setCurrentDeckName('');
+      
+      // Actualizar datos de la temporada actual
+      const updatedCurrentSeason = {
+        ...currentSeason,
+        points: initialPoints,
+        wins: initialWins,
+        losses: initialLosses,
+        winStreak: initialWinStreak,
+        gameHistory: [],
+        rankHistory: newRankHistory,
+        deckStats: {},
+        currentDeckName: '',
+        lastUpdated: new Date().toISOString()
+      };
+      
+      setCurrentSeason(updatedCurrentSeason);
+      
       setView('main');
       setErrorMessage('');
-      // *** INCLUIR DATOS DE MAZO EN GUARDADO INICIAL ***
-      const dataToSave = { points: initialPoints, wins: initialWins, losses: initialLosses, winStreak: initialWinStreak, gameHistory: [], rankHistory: newRankHistory, deckStats: {}, currentDeckName: '', autoload: true, lastUpdated: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
+      
+      // Guardar con la estructura de temporadas
+      const dataToSave = { 
+        currentSeason: updatedCurrentSeason,
+        seasons,
+        autoload: true, 
+        lastUpdated: new Date().toISOString(), 
+        version: DATA_VERSION, 
+        appVersion: APP_CONFIG.version 
+      };
+      
       saveToStorage(dataToSave).catch(err => console.error("Error guardando en setup:", err));
-    } catch (error) { console.error('Error en setup:', error); setErrorMessage('Error en la configuración.'); }
-  }, [setupPoints, setupWins, setupLosses, setupWinStreak, initRankHistory, saveToStorage]);
+    } catch (error) { 
+      console.error('Error en setup:', error); 
+      setErrorMessage('Error en la configuración.'); 
+    }
+  }, [setupPoints, setupWins, setupLosses, setupWinStreak, initRankHistory, saveToStorage, currentSeason, seasons]);
 
-  // *** MODIFICADO: recordGame AHORA USA Y ACTUALIZA deckStats ***
+  // Modificada para usar la estructura de temporadas
   const recordGame = React.useCallback((isWin) => {
+      // No registrar partidas en modo visualización
+      if (seasonViewMode) {
+        setErrorMessage('No se pueden registrar partidas mientras visualizas una temporada pasada');
+        return;
+      }
+      
       try {
         const updatedRankHistory = {...rankHistory};
         const updatedDeckStats = {...deckStats};
@@ -264,13 +602,33 @@ const PokemonTCGRankTracker = () => {
         };
         setGameHistory(gh => [gameInfo, ...gh].slice(0, 50));
         setErrorMessage('');
-      } catch (error) { console.error('Error registrando partida:', error); setErrorMessage('Error registrando partida'); }
-  }, [points, winStreak, currentRank, rankHistory, deckStats, currentDeckName]); // Dependencias actualizadas
+      } catch (error) { 
+        console.error('Error registrando partida:', error); 
+        setErrorMessage('Error registrando partida'); 
+      }
+  }, [points, winStreak, currentRank, rankHistory, deckStats, currentDeckName, seasonViewMode]);
 
+  // Modificada para incluir información de temporadas
   const exportData = React.useCallback(() => {
        try {
-          // *** INCLUIR DATOS DE MAZO EN EXPORTACIÓN ***
-          const dataToExport = { points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName, exportDate: new Date().toISOString(), version: DATA_VERSION, appVersion: APP_CONFIG.version };
+          const dataToExport = { 
+            currentSeason: {
+              ...currentSeason,
+              points,
+              wins,
+              losses,
+              winStreak,
+              gameHistory,
+              rankHistory,
+              deckStats,
+              currentDeckName,
+              lastUpdated: new Date().toISOString()
+            },
+            seasons,
+            exportDate: new Date().toISOString(), 
+            version: DATA_VERSION, 
+            appVersion: APP_CONFIG.version 
+          };
           const jsonString = JSON.stringify(dataToExport, null, 2);
           const blob = new Blob([jsonString], { type: 'application/json' });
           const file = new File([blob], `pokemon-tcg-data-${new Date().toISOString().slice(0,10)}.json`, { type: 'application/json' });
@@ -281,69 +639,139 @@ const PokemonTCGRankTracker = () => {
               .catch((error) => { if (error.name !== 'AbortError') downloadFile(jsonString); });
           } else { downloadFile(jsonString); }
            setTimeout(() => setSuccessMessage(''), 3000);
-        } catch (error) { console.error('Error exportando:', error); setErrorMessage('Error al exportar datos'); setTimeout(() => setErrorMessage(''), 5000); }
-  }, [points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName]); // Dependencias actualizadas
+        } catch (error) { 
+          console.error('Error exportando:', error); 
+          setErrorMessage('Error al exportar datos'); 
+          setTimeout(() => setErrorMessage(''), 5000); 
+        }
+  }, [points, wins, losses, winStreak, gameHistory, rankHistory, deckStats, currentDeckName, currentSeason, seasons]);
 
-   const downloadFile = (jsonString) => { /* ... (sin cambios) ... */
+  const downloadFile = (jsonString) => { /* ... (sin cambios) ... */
      const blob = new Blob([jsonString], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `pokemon-tcg-data-${new Date().toISOString().slice(0,10)}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); setSuccessMessage('Datos exportados.');
    };
 
-   // *** MODIFICADO: importData AHORA CARGA deckStats y currentDeckName ***
-   const importData = React.useCallback(() => {
+  // Modificada para importar datos con estructura de temporadas
+  const importData = React.useCallback(() => {
       try {
         if (!importText.trim()) { setErrorMessage('No hay datos para importar'); return; }
         const importedData = JSON.parse(importText);
-        if (importedData.points === undefined) throw new Error('Datos incompletos: Faltan puntos');
-
-        const impPoints = importedData.points || 0;
-        const impWins = importedData.wins || 0;
-        const impLosses = importedData.losses || 0;
-        const impWinStreak = importedData.winStreak || 0;
-        const impGameHistory = importedData.gameHistory || [];
-        const impRankHistory = importedData.rankHistory || {};
-        const impDeckStats = importedData.deckStats || {}; // Cargar datos de mazo
-        const impCurrentDeckName = importedData.currentDeckName || ''; // Cargar nombre de mazo
-
+        
+        // Migrar a formato de temporadas si es necesario
+        const migratedData = migrateDataToSeasons(importedData);
+        
+        if (!migratedData.currentSeason) throw new Error('Datos incompletos: Falta información de temporada');
+        
+        // Actualizar datos de la temporada actual
+        const currentSeasonData = migratedData.currentSeason;
+        
+        // Inicializar rankHistory correctamente
         const updatedRankHistory = initRankHistory();
-        Object.keys(updatedRankHistory).forEach(rankIdx => { if (impRankHistory[rankIdx]) { updatedRankHistory[rankIdx].wins = impRankHistory[rankIdx].wins || 0; updatedRankHistory[rankIdx].losses = impRankHistory[rankIdx].losses || 0; } });
+        const importedRankHistory = currentSeasonData.rankHistory || {};
+        
+        Object.keys(updatedRankHistory).forEach(rankIdx => { 
+          if (importedRankHistory[rankIdx]) { 
+            updatedRankHistory[rankIdx].wins = importedRankHistory[rankIdx].wins || 0; 
+            updatedRankHistory[rankIdx].losses = importedRankHistory[rankIdx].losses || 0; 
+          } 
+        });
+        
+        // Actualizar todos los estados
+        setPoints(currentSeasonData.points || 0); 
+        setWins(currentSeasonData.wins || 0); 
+        setLosses(currentSeasonData.losses || 0); 
+        setWinStreak(currentSeasonData.winStreak || 0); 
+        setGameHistory(currentSeasonData.gameHistory || []); 
+        setRankHistory(updatedRankHistory);
+        setDeckStats(currentSeasonData.deckStats || {}); 
+        setCurrentDeckName(currentSeasonData.currentDeckName || '');
+        
+        // Actualizar información de temporadas
+        setCurrentSeason(currentSeasonData);
+        setSeasons(migratedData.seasons || []);
+        
+        // Desactivar modo visualización
+        setSeasonViewMode(false);
+        setSelectedSeason(null);
 
-        setPoints(impPoints); setWins(impWins); setLosses(impLosses); setWinStreak(impWinStreak); setGameHistory(impGameHistory); setRankHistory(updatedRankHistory);
-        setDeckStats(impDeckStats); // Establecer estado de mazo
-        setCurrentDeckName(impCurrentDeckName); // Establecer nombre
-
-        const dataToSave = { // Incluir datos de mazo al guardar
-            points: impPoints, wins: impWins, losses: impLosses, winStreak: impWinStreak,
-            gameHistory: impGameHistory, rankHistory: updatedRankHistory,
-            deckStats: impDeckStats, currentDeckName: impCurrentDeckName,
-            autoload: true, lastUpdated: new Date().toISOString(), importedFrom: importedData.exportDate,
-            version: DATA_VERSION, appVersion: APP_CONFIG.version, previousVersion: importedData.version || 'desconocida'
+        // Guardar en almacenamiento
+        const dataToSave = { 
+          currentSeason: currentSeasonData,
+          seasons: migratedData.seasons || [],
+          autoload: true, 
+          lastUpdated: new Date().toISOString(), 
+          importedFrom: migratedData.exportDate,
+          version: DATA_VERSION, 
+          appVersion: APP_CONFIG.version, 
+          previousVersion: migratedData.version || 'desconocida'
         };
         saveToStorage(dataToSave);
 
-        setView('main'); setShowImportDialog(false); setImportText(''); setSuccessMessage('Datos importados.');
+        setView('main'); 
+        setShowImportDialog(false); 
+        setImportText(''); 
+        setSuccessMessage('Datos importados.');
         setTimeout(() => setSuccessMessage(''), 3000);
-      } catch (error) { console.error('Error importando:', error); setErrorMessage('Error al importar: ' + error.message); setTimeout(() => setErrorMessage(''), 5000); }
-  }, [importText, initRankHistory, saveToStorage]);
+      } catch (error) { 
+        console.error('Error importando:', error); 
+        setErrorMessage('Error al importar: ' + error.message); 
+        setTimeout(() => setErrorMessage(''), 5000); 
+      }
+  }, [importText, initRankHistory, saveToStorage, migrateDataToSeasons]);
 
   const handleFileImport = (event) => { /* ... (sin cambios) ... */
     const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { setImportText(e.target.result); } catch (error) { console.error('Error leyendo archivo:', error); setErrorMessage('Error al leer archivo'); } }; reader.readAsText(file);
   };
 
-  const shareData = React.useCallback(async () => { /* ... (sin cambios, solo comparte estado resumido) ... */
-      try { const dataToShare = { p: points, w: wins, l: losses, s: winStreak, r: currentRank, v: DATA_VERSION }; const encodedData = encodeURIComponent(JSON.stringify(dataToShare)); const url = `${window.location.origin}${window.location.pathname}?data=${encodedData}`; setShareUrl(url); if (navigator.share) { await navigator.share({ title: 'Mis datos de Pokémon TCG Pocket', text: `Progreso: ${RANKS[currentRank].name}, ${points}pts, ${wins}W-${losses}L`, url: url }); setSuccessMessage('¡Datos compartidos!'); } else { await navigator.clipboard.writeText(url); setSuccessMessage('Enlace copiado.'); } setTimeout(() => setSuccessMessage(''), 3000); } catch (error) { console.error('Error compartiendo:', error); if (error.name !== 'AbortError') { setErrorMessage('Error al compartir.'); setTimeout(() => setErrorMessage(''), 5000); } }
-  }, [points, wins, losses, winStreak, currentRank]);
+  // Modificada para compartir datos de la temporada actual
+  const shareData = React.useCallback(async () => {
+      try { 
+        const seasonName = seasonViewMode && selectedSeason 
+          ? selectedSeason.name 
+          : currentSeason.name;
+        
+        const dataToShare = { 
+          p: points, w: wins, l: losses, s: winStreak, r: currentRank, 
+          v: DATA_VERSION, n: seasonName 
+        };
+        
+        const encodedData = encodeURIComponent(JSON.stringify(dataToShare)); 
+        const url = `${window.location.origin}${window.location.pathname}?data=${encodedData}`;
+        
+        setShareUrl(url); 
+        
+        if (navigator.share) { 
+          await navigator.share({ 
+            title: 'Mis datos de Pokémon TCG Pocket', 
+            text: `${seasonName}: ${RANKS[currentRank].name}, ${points}pts, ${wins}W-${losses}L`, 
+            url: url 
+          }); 
+          setSuccessMessage('¡Datos compartidos!'); 
+        } else { 
+          await navigator.clipboard.writeText(url); 
+          setSuccessMessage('Enlace copiado.'); 
+        } 
+        
+        setTimeout(() => setSuccessMessage(''), 3000); 
+      } catch (error) { 
+        console.error('Error compartiendo:', error); 
+        if (error.name !== 'AbortError') { 
+          setErrorMessage('Error al compartir.'); 
+          setTimeout(() => setErrorMessage(''), 5000); 
+        } 
+      }
+  }, [points, wins, losses, winStreak, currentRank, currentSeason, selectedSeason, seasonViewMode]);
 
-   React.useEffect(() => { /* Load data from URL */ /* ... (sin cambios) ... */
+  React.useEffect(() => { /* Load data from URL */ /* ... (sin cambios) ... */
      if (!dbReady) return; try { const urlParams = new URLSearchParams(window.location.search); const encodedData = urlParams.get('data'); if (encodedData) { const data = JSON.parse(decodeURIComponent(encodedData)); if (data.v && data.p !== undefined) { setSetupPoints(data.p.toString()); setSetupWins(data.w.toString()); setSetupLosses(data.l.toString()); setSetupWinStreak(data.s.toString()); setSuccessMessage('Datos cargados desde enlace.'); setTimeout(() => setSuccessMessage(''), 3000); window.history.replaceState({}, document.title, window.location.pathname); } } } catch (error) { console.error('Error cargando desde URL:', error); }
    }, [dbReady]);
 
-   const installPWA = async () => { /* ... (sin cambios) ... */
+  const installPWA = async () => { /* ... (sin cambios) ... */
      if (!installPrompt) return; try { installPrompt.prompt(); const { outcome } = await installPrompt.userChoice; if (outcome === 'accepted') setSuccessMessage('¡App instalada!'); setInstallPrompt(null); } catch (error) { console.error('Error instalando PWA:', error); }
    };
 
-   // --- Estilos para Iconos (sin cambios) ---
-   const iconStyleSmall = { marginRight: '0.25rem', width: '18px', height: '18px', display: 'inline-block', verticalAlign: 'middle' };
-   const iconStyleMedium = { marginRight: '0.5rem', width: '20px', height: '20px', display: 'inline-block', verticalAlign: 'middle' };
+  // --- Estilos para Iconos (sin cambios) ---
+  const iconStyleSmall = { marginRight: '0.25rem', width: '18px', height: '18px', display: 'inline-block', verticalAlign: 'middle' };
+  const iconStyleMedium = { marginRight: '0.5rem', width: '20px', height: '20px', display: 'inline-block', verticalAlign: 'middle' };
 
   // === Renderizado ===
 
@@ -367,10 +795,55 @@ const PokemonTCGRankTracker = () => {
 
       <div className="bg-white rounded-xl shadow-md p-6 mb-4">
         <h1 className="text-2xl font-bold text-center mb-4 text-blue-600">Pokémon TCG Pocket - Tracker</h1>
+        
+        {/* *** Información de temporada *** */}
+        <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
+          <div className="mb-2 sm:mb-0">
+            <span className="text-sm font-semibold text-gray-600 mr-2">
+              {seasonViewMode && selectedSeason 
+                ? `Temporada: ${selectedSeason.name} (Vista)`
+                : `Temporada actual: ${currentSeason.name}`
+              }
+            </span>
+            <span className="text-xs text-gray-500">
+              {seasonViewMode && selectedSeason
+                ? `(${formatDate(selectedSeason.startDate)})`
+                : `(${formatDate(currentSeason.startDate)})`
+              }
+            </span>
+          </div>
+          <div className="flex space-x-2 text-sm">
+            {seasonViewMode ? (
+              <button 
+                onClick={returnToCurrentSeason} 
+                className="flex items-center text-blue-600 hover:text-blue-800 transition"
+              >
+                <i data-lucide="arrow-left" style={iconStyleSmall}></i> Volver a temporada actual
+              </button>
+            ) : (
+              <>
+                <button 
+                  onClick={() => setShowSeasonsDialog(true)} 
+                  className="flex items-center text-blue-600 hover:text-blue-800 transition"
+                >
+                  <i data-lucide="history" style={iconStyleSmall}></i> Ver temporadas
+                </button>
+                <button 
+                  onClick={() => setShowNewSeasonDialog(true)} 
+                  className="flex items-center text-purple-600 hover:text-purple-800 transition"
+                >
+                  <i data-lucide="plus-circle" style={iconStyleSmall}></i> Nueva temporada
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
         <div className="flex justify-end space-x-4 mb-4 text-sm">
           <button onClick={shareData} className="flex items-center text-blue-600 hover:text-blue-800 transition"><i data-lucide="share-2" style={iconStyleSmall}></i> Compartir</button>
           <button onClick={exportData} className="flex items-center text-blue-600 hover:text-blue-800 transition"><i data-lucide="download" style={iconStyleSmall}></i> Exportar</button>
         </div>
+        
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm"><h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Rango Actual</h2><div className="text-lg font-bold text-blue-700">{RANKS[currentRank]?.name || 'Desconocido'}</div><div className="mt-1 text-xs text-gray-500">{pointsToNextRankDisplay > 0 && nextRankName ? `${pointsToNextRankDisplay} pts para ${nextRankName}` : (currentRank >= 16 ? "¡Rango máximo!" : "")}</div></div>
           <div className="bg-blue-50 p-4 rounded-lg text-center shadow-sm"><h2 className="text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Puntos</h2><div className="text-lg font-bold text-blue-700">{points}</div><div className="mt-1 text-xs text-gray-500 h-4">{currentStreakBonusDisplay > 0 ? `Racha: ${winStreak} (+${currentStreakBonusDisplay} pts)` : ''}</div></div>
@@ -386,27 +859,59 @@ const PokemonTCGRankTracker = () => {
           <div className="mt-1 text-xs text-gray-500">Con {currentWinRate}% winrate</div>
         </div>
 
-        {/* *** Input Nombre de Mazo *** */}
+        {/* Input Nombre de Mazo */}
         <div className="mb-4">
           <label htmlFor="deckNameInput" className="block text-sm font-medium text-gray-700 mb-1">Mazo Actual:</label>
-          <input type="text" id="deckNameInput" value={currentDeckName} onChange={(e) => setCurrentDeckName(e.target.value)} placeholder="Ej: Gardevoir ex" className="w-full p-2 border rounded shadow-sm focus:ring-blue-500 focus:border-blue-500"/>
-          <p className="text-xs text-gray-500 mt-1">Este nombre se guardará con la próxima partida.</p>
+          <input 
+            type="text" 
+            id="deckNameInput" 
+            value={currentDeckName} 
+            onChange={(e) => setCurrentDeckName(e.target.value)} 
+            placeholder="Ej: Gardevoir ex" 
+            className="w-full p-2 border rounded shadow-sm focus:ring-blue-500 focus:border-blue-500"
+            disabled={seasonViewMode} // Desactivar en modo visualización
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            {seasonViewMode 
+              ? "No se puede modificar en modo visualización" 
+              : "Este nombre se guardará con la próxima partida."
+            }
+          </p>
         </div>
 
         <div className="flex space-x-2 mb-6">
-          <button onClick={() => recordGame(true)} className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center shadow hover:shadow-md transition"><i data-lucide="chevron-up" style={iconStyleMedium}></i> Victoria</button>
-          <button onClick={() => recordGame(false)} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center shadow hover:shadow-md transition"><i data-lucide="chevron-down" style={iconStyleMedium}></i> Derrota</button>
+          {/* Solo mostrar botones de partida si no estamos en modo visualización */}
+          {!seasonViewMode ? (
+            <>
+              <button 
+                onClick={() => recordGame(true)} 
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center shadow hover:shadow-md transition"
+              >
+                <i data-lucide="chevron-up" style={iconStyleMedium}></i> Victoria
+              </button>
+              <button 
+                onClick={() => recordGame(false)} 
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded flex items-center justify-center shadow hover:shadow-md transition"
+              >
+                <i data-lucide="chevron-down" style={iconStyleMedium}></i> Derrota
+              </button>
+            </>
+          ) : (
+            <div className="flex-1 bg-gray-200 p-3 rounded-lg text-center text-gray-600">
+              <i data-lucide="eye" style={iconStyleMedium}></i> Modo visualización - No se pueden registrar partidas
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6 mb-4">
         <h2 className="text-xl font-bold mb-4 text-gray-800">Historial de Partidas</h2>
         <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-          {gameHistory.length > 0 ? ( gameHistory.map((game, idx) => ( <div key={idx} className={`p-3 rounded-lg text-sm flex justify-between items-center ${game.result === 'Victoria' ? 'bg-green-50' : 'bg-red-50'}`}><div><span className={`font-semibold ${game.result === 'Victoria' ? 'text-green-700' : 'text-red-700'}`}>{game.result}</span> {/* Mostrar mazo usado */} <span className="text-gray-500 ml-2 text-xs">({game.rankName}{game.deck && game.deck !== '(Sin Mazo)' ? ` / ${game.deck}` : ''})</span></div><div className="text-right"><span className={`font-semibold ${game.pointsChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>{game.pointsChange >= 0 ? '+' : ''}{game.pointsChange}pts</span><span className="text-gray-400 ml-2 text-xs block">{game.timestamp}</span></div></div> )) ) : ( <div className="text-center text-gray-500 py-4">No hay partidas registradas</div> )}
+          {gameHistory.length > 0 ? ( gameHistory.map((game, idx) => ( <div key={idx} className={`p-3 rounded-lg text-sm flex justify-between items-center ${game.result === 'Victoria' ? 'bg-green-50' : 'bg-red-50'}`}><div><span className={`font-semibold ${game.result === 'Victoria' ? 'text-green-700' : 'text-red-700'}`}>{game.result}</span> <span className="text-gray-500 ml-2 text-xs">({game.rankName}{game.deck && game.deck !== '(Sin Mazo)' ? ` / ${game.deck}` : ''})</span></div><div className="text-right"><span className={`font-semibold ${game.pointsChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>{game.pointsChange >= 0 ? '+' : ''}{game.pointsChange}pts</span><span className="text-gray-400 ml-2 text-xs block">{game.timestamp}</span></div></div> )) ) : ( <div className="text-center text-gray-500 py-4">No hay partidas registradas</div> )}
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-md p-6">
+      <div className="bg-white rounded-xl shadow-md p-6 mb-4">
         <h2 className="text-xl font-bold mb-4 text-gray-800">Rendimiento por Rango</h2>
         <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
           {Object.entries(rankHistory).filter(([, stats]) => stats.wins + stats.losses > 0).sort(([rankIdxA], [rankIdxB]) => parseInt(rankIdxB) - parseInt(rankIdxA)).map(([rankIdx, stats]) => { const rank = RANKS[parseInt(rankIdx)]; const winRate = calculateWinRate(stats.wins, stats.losses); return ( <div key={rankIdx} className="p-3 bg-gray-50 rounded-lg"><div className="flex justify-between items-center mb-1"><div className="font-medium text-sm text-gray-800">{rank.name}</div><div className="text-xs"><span className="text-green-600 font-medium">{stats.wins}W</span> <span className="text-gray-400">-</span> <span className="text-red-600 font-medium">{stats.losses}L</span></div></div><div className="w-full bg-gray-200 rounded-full h-1.5 mb-1"><div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${winRate}%` }}></div></div><div className="flex justify-between text-xs text-gray-500"><span>WR: {winRate}%</span><span className="font-medium text-right">{calculateRankProjection(parseInt(rankIdx))}</span></div></div> ); })}
@@ -414,14 +919,14 @@ const PokemonTCGRankTracker = () => {
         </div>
       </div>
 
-      {/* *** NUEVA SECCIÓN: Rendimiento por Mazo *** */}
+      {/* Rendimiento por Mazo */}
       <div className="bg-white rounded-xl shadow-md p-6 mt-4">
         <h2 className="text-xl font-bold mb-4 text-gray-800">Rendimiento por Mazo</h2>
         <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
           {Object.entries(deckStats)
-            .sort(([deckNameA], [deckNameB]) => deckNameA.localeCompare(deckNameB)) // Ordenar alfabéticamente
+            .sort(([deckNameA], [deckNameB]) => deckNameA.localeCompare(deckNameB))
             .map(([deckName, stats]) => {
-              if (stats.wins + stats.losses === 0) return null; // No mostrar si no tiene partidas
+              if (stats.wins + stats.losses === 0) return null;
               const deckWinRate = calculateWinRate(stats.wins, stats.losses);
               return (
                 <div key={deckName} className="p-3 bg-gray-50 rounded-lg">
@@ -450,12 +955,186 @@ const PokemonTCGRankTracker = () => {
         <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mb-2">
           <button onClick={() => setView('setup')} className="text-blue-500 hover:text-blue-700 text-sm font-medium">Editar config</button>
           <button onClick={() => setShowImportDialog(true)} className="text-green-500 hover:text-green-700 text-sm font-medium">Importar datos</button>
-          <button onClick={() => { if (window.confirm('¿Borrar todos los datos? No se puede deshacer.')) { try { if (window.indexedDB) { indexedDB.deleteDatabase(APP_NAME).onsuccess = () => console.log("DB borrada"); } localStorage.clear(); window.location.reload(); } catch (e) { console.error("Error borrando datos:", e); alert("Error al borrar datos."); }} }} className="text-red-500 hover:text-red-700 text-sm font-medium">Borrar datos</button>
+          <button 
+            onClick={() => { 
+              if (window.confirm('¿Borrar todos los datos? No se puede deshacer.')) { 
+                try { 
+                  if (window.indexedDB) { 
+                    indexedDB.deleteDatabase(APP_NAME).onsuccess = () => console.log("DB borrada"); 
+                  } 
+                  localStorage.clear(); 
+                  window.location.reload(); 
+                } catch (e) { 
+                  console.error("Error borrando datos:", e); 
+                  alert("Error al borrar datos."); 
+                }
+              } 
+            }} 
+            className="text-red-500 hover:text-red-700 text-sm font-medium"
+          >
+            Borrar datos
+          </button>
         </div>
         <p className="text-xs text-gray-500">Datos guardados automáticamente.</p>
         <p className="text-xs text-gray-400 mt-1">Versión {APP_CONFIG.version}</p>
       </div>
-       {showImportDialog && ( <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl"><h2 className="text-xl font-bold mb-4 text-gray-800">Importar Datos</h2><div className="space-y-4"><div><p className="text-sm text-gray-600 mb-2">Sube un archivo JSON:</p><input type="file" accept=".json" onChange={handleFileImport} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/></div><div><label className="block text-sm font-medium text-gray-700 mb-1">O pega el contenido:</label><textarea value={importText} onChange={(e) => setImportText(e.target.value)} className="w-full p-2 border rounded h-32 text-sm font-mono" placeholder='{"points": 0, ...}'></textarea></div><div className="flex space-x-2"><button onClick={importData} disabled={!importText.trim()} className={`flex-1 font-bold py-2 px-4 rounded transition ${!importText.trim() ? 'bg-green-300 text-white cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white'}`}>Importar</button><button onClick={() => { setShowImportDialog(false); setImportText(''); }} className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition">Cancelar</button></div></div></div></div> )}
+      
+      {/* Diálogo de importación */}
+      {showImportDialog && ( 
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
+            <h2 className="text-xl font-bold mb-4 text-gray-800">Importar Datos</h2>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-2">Sube un archivo JSON:</p>
+                <input 
+                  type="file" 
+                  accept=".json" 
+                  onChange={handleFileImport} 
+                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">O pega el contenido:</label>
+                <textarea 
+                  value={importText} 
+                  onChange={(e) => setImportText(e.target.value)} 
+                  className="w-full p-2 border rounded h-32 text-sm font-mono" 
+                  placeholder='{"points": 0, ...}'
+                ></textarea>
+              </div>
+              <div className="flex space-x-2">
+                <button 
+                  onClick={importData} 
+                  disabled={!importText.trim()} 
+                  className={`flex-1 font-bold py-2 px-4 rounded transition ${!importText.trim() ? 'bg-green-300 text-white cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white'}`}
+                >
+                  Importar
+                </button>
+                <button 
+                  onClick={() => { setShowImportDialog(false); setImportText(''); }} 
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div> 
+      )}
+      
+      {/* Diálogo de nueva temporada */}
+      {showNewSeasonDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
+            <h2 className="text-xl font-bold mb-4 text-gray-800">Iniciar Nueva Temporada</h2>
+            <div className="space-y-4">
+              <div className="bg-yellow-50 p-3 rounded text-sm text-yellow-800 mb-4">
+                <p><strong>¡Importante!</strong> Iniciar una nueva temporada guardará todos tus datos actuales en el historial y reiniciará tus estadísticas. La temporada actual se convertirá en histórica.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la nueva temporada:</label>
+                <input 
+                  type="text" 
+                  value={newSeasonName} 
+                  onChange={(e) => setNewSeasonName(e.target.value)} 
+                  className="w-full p-2 border rounded shadow-sm" 
+                  placeholder="Ej: Temporada 2"
+                />
+              </div>
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => startNewSeason(newSeasonName)}
+                  disabled={!newSeasonName.trim()} 
+                  className={`flex-1 font-bold py-2 px-4 rounded transition ${!newSeasonName.trim() ? 'bg-purple-300 text-white cursor-not-allowed' : 'bg-purple-500 hover:bg-purple-600 text-white'}`}
+                >
+                  Iniciar Nueva Temporada
+                </button>
+                <button 
+                  onClick={() => { setShowNewSeasonDialog(false); setNewSeasonName(''); }} 
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Diálogo de temporadas */}
+      {showSeasonsDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl">
+            <h2 className="text-xl font-bold mb-4 text-gray-800">Historial de Temporadas</h2>
+            <div className="space-y-4">
+              <div className="max-h-96 overflow-y-auto space-y-3">
+                {/* Temporada actual */}
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="font-semibold">{currentSeason.name} <span className="text-xs font-normal text-blue-600">(Actual)</span></div>
+                    <div className="text-sm text-gray-500">{formatDate(currentSeason.startDate)}</div>
+                  </div>
+                  <div className="text-sm text-gray-700 mb-1">
+                    {RANKS[currentRank]?.name || 'Desconocido'} | {currentSeason.points || points} pts
+                  </div>
+                  <div className="text-xs text-gray-600">
+                    {currentSeason.wins || wins}W - {currentSeason.losses || losses}L | WR: {calculateWinRate(currentSeason.wins || wins, currentSeason.losses || losses)}%
+                  </div>
+                </div>
+                
+                {/* Temporadas pasadas */}
+                {seasons.length > 0 ? (
+                  seasons.map((season, index) => {
+                    // Calcular el rango que tenía en esa temporada
+                    let seasonRank = 0;
+                    for (let i = RANKS.length - 1; i >= 0; i--) {
+                      if (season.points >= RANKS[i].points) { 
+                        seasonRank = i; 
+                        break; 
+                      }
+                    }
+                    
+                    return (
+                      <div key={season.id} className="p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition">
+                        <div className="flex justify-between items-center mb-1">
+                          <div className="font-semibold">{season.name}</div>
+                          <div className="text-sm text-gray-500">{formatDate(season.startDate)}</div>
+                        </div>
+                        <div className="text-sm text-gray-700 mb-1">
+                          {RANKS[seasonRank]?.name || 'Desconocido'} | {season.points} pts
+                        </div>
+                        <div className="text-xs text-gray-600 mb-2">
+                          {season.wins}W - {season.losses}L | WR: {calculateWinRate(season.wins, season.losses)}%
+                        </div>
+                        <button 
+                          onClick={() => viewSeasonData(index)} 
+                          className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                        >
+                          <i data-lucide="eye" style={iconStyleSmall}></i> Ver detalles
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center text-gray-500 py-6">
+                    No hay temporadas anteriores
+                  </div>
+                )}
+              </div>
+              
+              <div className="pt-3 border-t">
+                <button 
+                  onClick={() => setShowSeasonsDialog(false)} 
+                  className="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -465,4 +1144,4 @@ const container = document.getElementById('root');
 const root = ReactDOM.createRoot(container);
 root.render(<PokemonTCGRankTracker />);
 
-// --- END OF FILE /static/js/main.js (v1.0.6 - Seguimiento por Mazo) ---
+// --- END OF FILE /static/js/main.js (v1.0.7 - Sistema de Temporadas) ---
