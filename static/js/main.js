@@ -330,12 +330,92 @@ const PokemonTCGRankTracker = () => {
     return total > 0 ? ((w / total) * 100).toFixed(1) : '0.0';
   }, []);
 
-  const calculateGamesToMasterBall = React.useCallback(() => { /* ... (sin cambios) ... */
-    try { if (currentRank >= 16) return 0; const targetPoints = RANKS[16].points; if (points >= targetPoints) return 0; const pointsNeededTotal = targetPoints - points; const globalWinRate = (wins + losses > 0) ? wins / (wins + losses) : 0.5; let estimatedTotalGames = 0; let currentSimulatedPoints = points; for (let i = currentRank; i < 16; i++) { const rankData = RANKS[i]; const nextRankPoints = (i + 1 < RANKS.length) ? RANKS[i+1].points : targetPoints; const pointsNeededForThisRank = nextRankPoints - currentSimulatedPoints; if (pointsNeededForThisRank <= 0) { currentSimulatedPoints = Math.max(currentSimulatedPoints, rankData.points); continue; } const winPoints = rankData.winPoints; const lossPoints = rankData.lossPoints; const streakApplies = i <= 11; let avgStreakBonus = 0; if (streakApplies) { if (globalWinRate > 0.8) avgStreakBonus = 9; else if (globalWinRate > 0.65) avgStreakBonus = 6; else if (globalWinRate > 0.5) avgStreakBonus = 3; } const effectiveWinPoints = winPoints + avgStreakBonus; const netPointsPerGame = (globalWinRate * effectiveWinPoints) - ((1 - globalWinRate) * lossPoints); if (netPointsPerGame <= 0) return Infinity; const gamesForThisRank = Math.ceil(pointsNeededForThisRank / netPointsPerGame); estimatedTotalGames += gamesForThisRank; currentSimulatedPoints += pointsNeededForThisRank; } return estimatedTotalGames; } catch (error) { console.error('Error calculando juegos hasta Master Ball:', error); return Infinity; }
+  const calculateGamesToMasterBall = React.useCallback(() => {
+    try { 
+      if (currentRank >= 16) return 0; 
+      const targetPoints = RANKS[16].points; 
+      if (points >= targetPoints) return 0; 
+      const globalWinRate = (wins + losses > 0) ? wins / (wins + losses) : 0.5; 
+      let estimatedTotalGames = 0; 
+      let currentSimulatedPoints = points; 
+      
+      for (let i = currentRank; i < 16; i++) { 
+        const rankData = RANKS[i]; 
+        const nextRankPoints = (i + 1 < RANKS.length) ? RANKS[i+1].points : targetPoints; 
+        const pointsNeededForThisRank = nextRankPoints - currentSimulatedPoints; 
+        if (pointsNeededForThisRank <= 0) { 
+          currentSimulatedPoints = Math.max(currentSimulatedPoints, rankData.points); 
+          continue; 
+        } 
+        const winPoints = rankData.winPoints; 
+        const lossPoints = rankData.lossPoints; 
+        
+        // Sistema de rachas extendido - ahora aplica a todos los rangos
+        let avgStreakBonus = 0; 
+        if (globalWinRate > 0.8) avgStreakBonus = 9; 
+        else if (globalWinRate > 0.65) avgStreakBonus = 6; 
+        else if (globalWinRate > 0.5) avgStreakBonus = 3; 
+        
+        const effectiveWinPoints = winPoints + avgStreakBonus; 
+        const netPointsPerGame = (globalWinRate * effectiveWinPoints) - ((1 - globalWinRate) * lossPoints); 
+        if (netPointsPerGame <= 0) return Infinity; 
+        const gamesForThisRank = Math.ceil(pointsNeededForThisRank / netPointsPerGame); 
+        estimatedTotalGames += gamesForThisRank; 
+        currentSimulatedPoints += pointsNeededForThisRank; 
+      } 
+      return estimatedTotalGames; 
+    } catch (error) { 
+      console.error('Error calculando juegos hasta Master Ball:', error); 
+      return Infinity; 
+    }
   }, [currentRank, points, wins, losses]);
 
-  const calculateRankProjection = React.useCallback((rankIndex) => { /* ... (sin cambios) ... */
-      try { const rank = RANKS[rankIndex]; const nextRankIndex = rankIndex + 1; if (nextRankIndex >= RANKS.length) return "¡Rango máximo!"; const nextRank = RANKS[nextRankIndex]; let pointsNeeded; if (rankIndex === currentRank && currentRank < 16) { pointsNeeded = nextRank.points - points; } else if (rankIndex < currentRank) { return "-"; } else { pointsNeeded = nextRank.points - rank.points; } if (pointsNeeded <=0) return "Completado"; const rankStats = rankHistory[rankIndex] || { wins: 0, losses: 0 }; const totalGamesInRank = rankStats.wins + rankStats.losses; let rankWinRate; if (totalGamesInRank > 0) { rankWinRate = rankStats.wins / totalGamesInRank; } else if (wins + losses > 0) { rankWinRate = wins / (wins + losses); } else { rankWinRate = 0.5; } const winPoints = rank.winPoints; const lossPoints = rank.lossPoints; const streakApplies = rankIndex <= 11; let avgStreakBonus = 0; if (streakApplies) { if (rankWinRate > 0.8) avgStreakBonus = 9; else if (rankWinRate > 0.65) avgStreakBonus = 6; else if (rankWinRate > 0.5) avgStreakBonus = 3; } const effectiveWinPoints = winPoints + avgStreakBonus; const netPointsPerGame = (rankWinRate * effectiveWinPoints) - ((1 - rankWinRate) * lossPoints); if (netPointsPerGame <= 0) { const requiredWinRate = (lossPoints / (winPoints + lossPoints)); return `${pointsNeeded} pts | Req: >${(requiredWinRate * 100).toFixed(0)}% WR`; } const estimatedGames = Math.ceil(pointsNeeded / netPointsPerGame); return `${pointsNeeded} pts | ~${estimatedGames} partidas`; } catch (error) { console.error('Error proyección rango:', error); return "Error"; }
+  const calculateRankProjection = React.useCallback((rankIndex) => {
+      try { 
+        const rank = RANKS[rankIndex]; 
+        const nextRankIndex = rankIndex + 1; 
+        if (nextRankIndex >= RANKS.length) return "¡Rango máximo!"; 
+        const nextRank = RANKS[nextRankIndex]; 
+        let pointsNeeded; 
+        if (rankIndex === currentRank && currentRank < 16) { 
+          pointsNeeded = nextRank.points - points; 
+        } else if (rankIndex < currentRank) { 
+          return "-"; 
+        } else { 
+          pointsNeeded = nextRank.points - rank.points; 
+        } 
+        if (pointsNeeded <=0) return "Completado"; 
+        const rankStats = rankHistory[rankIndex] || { wins: 0, losses: 0 }; 
+        const totalGamesInRank = rankStats.wins + rankStats.losses; 
+        let rankWinRate; 
+        if (totalGamesInRank > 0) { 
+          rankWinRate = rankStats.wins / totalGamesInRank; 
+        } else if (wins + losses > 0) { 
+          rankWinRate = wins / (wins + losses); 
+        } else { 
+          rankWinRate = 0.5; 
+        } 
+        const winPoints = rank.winPoints; 
+        const lossPoints = rank.lossPoints; 
+        
+        // Sistema de rachas extendido - ahora aplica a todos los rangos incluido Master Ball
+        let avgStreakBonus = 0; 
+        if (rankWinRate > 0.8) avgStreakBonus = 9; 
+        else if (rankWinRate > 0.65) avgStreakBonus = 6; 
+        else if (rankWinRate > 0.5) avgStreakBonus = 3; 
+        
+        const effectiveWinPoints = winPoints + avgStreakBonus; 
+        const netPointsPerGame = (rankWinRate * effectiveWinPoints) - ((1 - rankWinRate) * lossPoints); 
+        if (netPointsPerGame <= 0) { 
+          const requiredWinRate = (lossPoints / (winPoints + lossPoints)); 
+          return `${pointsNeeded} pts | Req: >${(requiredWinRate * 100).toFixed(0)}% WR`; 
+        } 
+        const estimatedGames = Math.ceil(pointsNeeded / netPointsPerGame); 
+        return `${pointsNeeded} pts | ~${estimatedGames} partidas`; 
+      } catch (error) { 
+        console.error('Error proyección rango:', error); 
+        return "Error"; 
+      }
   }, [points, wins, losses, currentRank, rankHistory]);
 
   // --- Funciones de Acción ---
@@ -659,10 +739,9 @@ const PokemonTCGRankTracker = () => {
           currentWinStreak += 1;
           setWins(w => w + 1);
           pointsChange = rankData.winPoints;
-          if (currentRank <= 11) {
-            const streakBonus = WIN_STREAK_BONUS[Math.min(currentWinStreak, WIN_STREAK_BONUS.length - 1)];
-            pointsChange += streakBonus;
-          }
+          // Sistema de rachas extendido para todos los rangos incluido Master Ball
+          const streakBonus = WIN_STREAK_BONUS[Math.min(currentWinStreak, WIN_STREAK_BONUS.length - 1)];
+          pointsChange += streakBonus;
         } else {
           updatedRankHistory[currentRank].losses = (updatedRankHistory[currentRank]?.losses || 0) + 1;
           updatedDeckStats[deckKey].losses += 1; // Actualizar stats del mazo
@@ -869,7 +948,7 @@ const PokemonTCGRankTracker = () => {
   const nextRankIndex = currentRank < 16 ? currentRank + 1 : 16;
   const pointsToNextRankDisplay = currentRank < 16 ? (RANKS[nextRankIndex]?.points || 0) - points : 0;
   const nextRankName = currentRank < 16 ? RANKS[nextRankIndex]?.name : '';
-  const currentStreakBonusDisplay = currentRank <= 11 && winStreak > 0 ? WIN_STREAK_BONUS[Math.min(winStreak, WIN_STREAK_BONUS.length - 1)] : 0;
+  const currentStreakBonusDisplay = winStreak > 0 ? WIN_STREAK_BONUS[Math.min(winStreak, WIN_STREAK_BONUS.length - 1)] : 0;
 
   return (
     <div className="p-4 max-w-2xl mx-auto bg-gray-100 min-h-screen">
