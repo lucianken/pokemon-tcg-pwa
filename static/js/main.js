@@ -713,6 +713,87 @@ const PokemonTCGRankTracker = () => {
     }
   }, [setupPoints, setupWins, setupLosses, setupWinStreak, initRankHistory, saveToStorage, currentSeason, seasons]);
 
+  // Función para eliminar la última partida
+  const deleteLastGame = React.useCallback(() => {
+    // No eliminar partidas en modo visualización
+    if (seasonViewMode) {
+      setErrorMessage('No se pueden eliminar partidas mientras visualizas una temporada pasada');
+      return;
+    }
+
+    // Verificar que hay partidas para eliminar
+    if (gameHistory.length === 0) {
+      setErrorMessage('No hay partidas para eliminar');
+      return;
+    }
+
+    try {
+      const lastGame = gameHistory[0]; // La última partida está al inicio del array
+      
+      // Confirmar eliminación
+      if (!window.confirm(`¿Eliminar la última partida? ${lastGame.result} (${lastGame.pointsChange >= 0 ? '+' : ''}${lastGame.pointsChange}pts)`)) {
+        return;
+      }
+
+      // 1. Remover la partida del historial
+      const updatedGameHistory = gameHistory.slice(1);
+      setGameHistory(updatedGameHistory);
+
+      // 2. Revertir cambios en rankHistory
+      const updatedRankHistory = {...rankHistory};
+      const gameRankIndex = RANKS.findIndex(rank => rank.name === lastGame.rankName);
+      if (gameRankIndex !== -1) {
+        if (lastGame.result === 'Victoria') {
+          updatedRankHistory[gameRankIndex].wins = Math.max(0, (updatedRankHistory[gameRankIndex]?.wins || 0) - 1);
+          setWins(w => Math.max(0, w - 1));
+        } else {
+          updatedRankHistory[gameRankIndex].losses = Math.max(0, (updatedRankHistory[gameRankIndex]?.losses || 0) - 1);
+          setLosses(l => Math.max(0, l - 1));
+        }
+      }
+
+      // 3. Revertir cambios en deckStats
+      const updatedDeckStats = {...deckStats};
+      const deckKey = lastGame.deck || "(Sin Mazo)";
+      if (updatedDeckStats[deckKey]) {
+        if (lastGame.result === 'Victoria') {
+          updatedDeckStats[deckKey].wins = Math.max(0, updatedDeckStats[deckKey].wins - 1);
+        } else {
+          updatedDeckStats[deckKey].losses = Math.max(0, updatedDeckStats[deckKey].losses - 1);
+        }
+        
+        // Eliminar entrada del mazo si no tiene partidas
+        if (updatedDeckStats[deckKey].wins === 0 && updatedDeckStats[deckKey].losses === 0) {
+          delete updatedDeckStats[deckKey];
+        }
+      }
+
+      // 4. Revertir puntos
+      const newPoints = Math.max(0, points - lastGame.pointsChange);
+      setPoints(newPoints);
+
+      // 5. Recalcular win streak desde el historial actualizado
+      let newWinStreak = 0;
+      for (const game of updatedGameHistory) {
+        if (game.result === 'Victoria') {
+          newWinStreak++;
+        } else {
+          break; // La racha se rompe en la primera derrota
+        }
+      }
+      setWinStreak(newWinStreak);
+
+      setRankHistory(updatedRankHistory);
+      setDeckStats(updatedDeckStats);
+
+      setSuccessMessage('Última partida eliminada');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error eliminando última partida:', error);
+      setErrorMessage('Error al eliminar partida');
+    }
+  }, [gameHistory, seasonViewMode, rankHistory, deckStats, points]);
+
   // Modificada para usar la estructura de temporadas
   const recordGame = React.useCallback((isWin) => {
       // No registrar partidas en modo visualización
@@ -1041,7 +1122,7 @@ const PokemonTCGRankTracker = () => {
           </p>
         </div>
 
-        <div className="flex space-x-2 mb-6">
+        <div className="flex space-x-2 mb-4">
           {/* Solo mostrar botones de partida si no estamos en modo visualización */}
           {!seasonViewMode ? (
             <>
@@ -1064,6 +1145,18 @@ const PokemonTCGRankTracker = () => {
             </div>
           )}
         </div>
+
+        {/* Botón para eliminar última partida */}
+        {!seasonViewMode && gameHistory.length > 0 && (
+          <div className="mb-6">
+            <button 
+              onClick={deleteLastGame} 
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded flex items-center justify-center shadow hover:shadow-md transition"
+            >
+              <i data-lucide="undo-2" style={iconStyleMedium}></i> Eliminar última partida
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6 mb-4">
